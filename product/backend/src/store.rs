@@ -7,19 +7,29 @@ use uuid::Uuid;
 use crate::models::{Job, Stage, Status};
 
 #[derive(Clone)]
-pub struct JobStore { root: PathBuf }
+pub struct JobStore {
+    root: PathBuf,
+}
 
 impl JobStore {
     pub async fn new(root: PathBuf) -> Result<Self> {
-        fs::create_dir_all(&root).await.context("Could not create job storage.")?;
+        fs::create_dir_all(&root)
+            .await
+            .context("Could not create job storage.")?;
         Ok(Self { root })
     }
 
-    pub fn root(&self) -> &Path { &self.root }
-    pub fn folder(&self, id: Uuid) -> PathBuf { self.root.join(id.to_string()) }
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+    pub fn folder(&self, id: Uuid) -> PathBuf {
+        self.root.join(id.to_string())
+    }
 
     pub async fn load(&self, id: Uuid) -> Result<Job> {
-        Ok(serde_json::from_slice(&fs::read(self.folder(id).join("job.json")).await?)?)
+        Ok(serde_json::from_slice(
+            &fs::read(self.folder(id).join("job.json")).await?,
+        )?)
     }
 
     pub async fn save(&self, job: &Job) -> Result<()> {
@@ -33,7 +43,9 @@ impl JobStore {
     pub async fn recover_interrupted(&self) -> Result<()> {
         let mut entries = fs::read_dir(&self.root).await?;
         while let Some(entry) = entries.next_entry().await? {
-            let Ok(id) = Uuid::parse_str(&entry.file_name().to_string_lossy()) else { continue };
+            let Ok(id) = Uuid::parse_str(&entry.file_name().to_string_lossy()) else {
+                continue;
+            };
             match self.load(id).await {
                 Ok(mut job) if matches!(job.status, Status::Queued | Status::Running) => {
                     job.status = Status::Failed;

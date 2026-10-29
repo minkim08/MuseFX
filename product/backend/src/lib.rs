@@ -4,8 +4,8 @@ pub mod models;
 pub mod pipeline;
 pub mod store;
 
-use std::sync::Arc;
 use adapters::{AudioAdapter, DetectionAdapter};
+use std::sync::Arc;
 use store::JobStore;
 
 #[derive(Clone)]
