@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use tokio::{fs, process::Command, time::timeout};
 
-use crate::models::{Event, EventsDocument, EventType, Video};
+use crate::models::{Event, EventType, EventsDocument, Video};
 
 #[async_trait]
 pub trait DetectionAdapter: Send + Sync {
@@ -20,12 +20,15 @@ pub trait AudioAdapter: Send + Sync {
 /// Argument lists avoid shell interpolation; a dropped timed-out child is killed.
 pub async fn run_media(command: &mut Command) -> Result<Vec<u8>> {
     command.kill_on_drop(true).stdin(Stdio::null());
-    let output = timeout(Duration::from_secs(180), command.output()).await
+    let output = timeout(Duration::from_secs(180), command.output())
+        .await
         .context("Video processing exceeded the 180 second limit.")?
         .map_err(|error| {
             if error.kind() == std::io::ErrorKind::NotFound {
                 anyhow!("FFmpeg and ffprobe must be installed and on PATH.")
-            } else { anyhow!(error).context("Could not start video processing.") }
+            } else {
+                anyhow!(error).context("Could not start video processing.")
+            }
         })?;
     if !output.status.success() {
         tracing::warn!(stderr = %String::from_utf8_lossy(&output.stderr), "Media command failed");
@@ -43,7 +46,9 @@ pub struct ProbeStream {
     pub r_frame_rate: Option<String>,
 }
 #[derive(Debug, Deserialize)]
-pub struct ProbeFormat { pub duration: Option<String> }
+pub struct ProbeFormat {
+    pub duration: Option<String>,
+}
 #[derive(Debug, Deserialize)]
 pub struct Probe {
     pub streams: Vec<ProbeStream>,
@@ -51,9 +56,19 @@ pub struct Probe {
 }
 
 pub async fn probe(video: &Path) -> Result<Probe> {
-    let bytes = run_media(Command::new("ffprobe").args([
-        "-v", "error", "-show_format", "-show_streams", "-of", "json",
-    ]).arg(video)).await?;
+    let bytes = run_media(
+        Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-show_format",
+                "-show_streams",
+                "-of",
+                "json",
+            ])
+            .arg(video),
+    )
+    .await?;
     serde_json::from_slice(&bytes).context("Could not read video metadata.")
 }
 
@@ -69,26 +84,59 @@ pub struct MockDetection;
 impl DetectionAdapter for MockDetection {
     async fn detect(&self, video: &Path, output: &Path) -> Result<EventsDocument> {
         let metadata = probe(video).await?;
-        let stream = metadata.streams.iter().find(|s| s.codec_type == "video")
+        let stream = metadata
+            .streams
+            .iter()
+            .find(|s| s.codec_type == "video")
             .context("The uploaded file does not contain a video stream.")?;
         let width = stream.width.context("Video width is unavailable.")?;
         let height = stream.height.context("Video height is unavailable.")?;
-        ensure!(width > 0 && height > 0 && width.max(height) <= 1920 && width.min(height) <= 1080,
-            "Please upload a video up to 1080p (1920 by 1080, or portrait equivalent).");
-        let fps = stream.avg_frame_rate.as_deref().and_then(parse_frame_rate)
+        ensure!(
+            width > 0 && height > 0 && width.max(height) <= 1920 && width.min(height) <= 1080,
+            "Please upload a video up to 1080p (1920 by 1080, or portrait equivalent)."
+        );
+        let fps = stream
+            .avg_frame_rate
+            .as_deref()
+            .and_then(parse_frame_rate)
             .or_else(|| stream.r_frame_rate.as_deref().and_then(parse_frame_rate))
             .context("Video frame rate is unavailable.")?;
-        let duration: f64 = metadata.format.duration.context("Video duration is unavailable.")?
-            .parse().context("Video duration is invalid.")?;
-        ensure!(duration.is_finite() && duration > 0.0, "Video duration must be finite and positive.");
-        ensure!(duration <= 60.0, "Please upload a video of 60 seconds or less.");
+        let duration: f64 = metadata
+            .format
+            .duration
+            .context("Video duration is unavailable.")?
+            .parse()
+            .context("Video duration is invalid.")?;
+        ensure!(
+            duration.is_finite() && duration > 0.0,
+            "Video duration must be finite and positive."
+        );
+        ensure!(
+            duration <= 60.0,
+            "Please upload a video of 60 seconds or less."
+        );
         let timestamp = 1.0_f64.min(duration / 3.0);
         let events = EventsDocument {
-            video: Video { id: video.parent().and_then(|p| p.file_name()).context("Missing video ID.")?
-                .to_string_lossy().into_owned(), duration, fps },
-            events: vec![Event { id: "test-tone-1".into(), t: timestamp,
-                duration: 0.35_f64.min(duration - timestamp), event_type: EventType::Impact,
-                prompt: "Mock impact / 880 Hz test tone".into(), volume: 0.8, pan: 0.0, confidence: 1.0 }],
+            video: Video {
+                id: video
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .context("Missing video ID.")?
+                    .to_string_lossy()
+                    .into_owned(),
+                duration,
+                fps,
+            },
+            events: vec![Event {
+                id: "test-tone-1".into(),
+                t: timestamp,
+                duration: 0.35_f64.min(duration - timestamp),
+                event_type: EventType::Impact,
+                prompt: "Mock impact / 880 Hz test tone".into(),
+                volume: 0.8,
+                pan: 0.0,
+                confidence: 1.0,
+            }],
             ambience: None,
         };
         events.validate()?;
@@ -103,29 +151,68 @@ pub struct MockAudio;
 impl AudioAdapter for MockAudio {
     async fn render(&self, video: &Path, events: &EventsDocument, output: &Path) -> Result<()> {
         events.validate()?;
-        let has_audio = probe(video).await?.streams.iter().any(|s| s.codec_type == "audio");
+        let has_audio = probe(video)
+            .await?
+            .streams
+            .iter()
+            .any(|s| s.codec_type == "audio");
         let mut filters = Vec::new();
-        let mut inputs = if has_audio { "[0:a:0]".to_owned() } else { String::new() };
-        for (i, event) in events.events.iter().filter(|event| event.confidence >= 0.5).enumerate() {
+        let mut inputs = if has_audio {
+            "[0:a:0]".to_owned()
+        } else {
+            String::new()
+        };
+        for (i, event) in events
+            .events
+            .iter()
+            .filter(|event| event.confidence >= 0.5)
+            .enumerate()
+        {
             let delay = (event.t * 1000.0).round();
             let gain = 0.4 * event.volume;
             let left = (1.0 - event.pan).sqrt();
             let right = (1.0 + event.pan).sqrt();
             filters.push(format!(
-                "sine=frequency=880:sample_rate=48000:duration={},afade=t=out:st={}:d={},volume={gain},pan=stereo|c0={left}*c0|c1={right}*c0,adelay={delay}:all=1[tone{i}]",
+                "sine=frequency=880:sample_rate=48000:duration={},afade=t=out:st={}:d={},volume={gain},pan=stereo|c0={left}*c0|c1={right}*c0,adelay={delay}:all=1,asetpts=N/SR/TB[tone{i}]",
                 event.duration, event.duration * 0.7, event.duration * 0.3));
             inputs.push_str(&format!("[tone{i}]"));
         }
-        let count = events.events.iter().filter(|event| event.confidence >= 0.5).count() + usize::from(has_audio);
+        let count = events
+            .events
+            .iter()
+            .filter(|event| event.confidence >= 0.5)
+            .count()
+            + usize::from(has_audio);
         if count > 0 {
-            filters.push(format!("{inputs}amix=inputs={count}:normalize=0,apad[aout]"));
+            filters.push(format!(
+                "{inputs}amix=inputs={count}:normalize=0,apad,asetpts=N/SR/TB[aout]"
+            ));
         } else {
             filters.push("anullsrc=r=48000:cl=stereo[aout]".into());
         }
-        run_media(Command::new("ffmpeg").args(["-y", "-v", "error", "-i"]).arg(video)
-            .args(["-filter_complex", &filters.join(";"), "-map", "0:v:0", "-map", "[aout]",
-                "-c:v", "copy", "-c:a", "aac", "-t", &events.video.duration.to_string(),
-                "-movflags", "+faststart"]).arg(output)).await?;
+        run_media(
+            Command::new("ffmpeg")
+                .args(["-y", "-v", "error", "-i"])
+                .arg(video)
+                .args([
+                    "-filter_complex",
+                    &filters.join(";"),
+                    "-map",
+                    "0:v:0",
+                    "-map",
+                    "[aout]",
+                    "-c:v",
+                    "copy",
+                    "-c:a",
+                    "aac",
+                    "-t",
+                    &events.video.duration.to_string(),
+                    "-movflags",
+                    "+faststart",
+                ])
+                .arg(output),
+        )
+        .await?;
         Ok(())
     }
 }
