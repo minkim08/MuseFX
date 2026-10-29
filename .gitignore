@@ -1,0 +1,65 @@
+# Secrets and credentials — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+.modal.toml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Node / Next.js (web app)
+node_modules/
+.next/
+out/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Model weights and checkpoints — licensed separately, never commit
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+*.onnx
+checkpoints/
+weights/
+
+# Uploads, generated audio, and job outputs (keyed by job_id)
+uploads/
+outputs/
+results/
+jobs/
+
+# Raw and generated media — game footage is not ours to redistribute.
+# Force-add intentional fixtures/demo files with `git add -f`.
+*.mp4
+*.mov
+*.wav
+*.mp3
+*.flac
+
+# Extracted frames and other scratch work
+frames/
+tmp/
+
+# Logs and caches
+*.log
+.cache/
+
+# OS and editor
+.DS_Store
+.idea/
+.vscode/
