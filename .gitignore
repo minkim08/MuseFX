@@ -63,3 +63,7 @@ tmp/
 .DS_Store
 .idea/
 .vscode/
+
+# Rust Product backend
+product/backend/target/
+*.tsbuildinfo
