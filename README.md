@@ -10,9 +10,11 @@ The Product layer is implemented and runnable locally:
 
 - **Frontend:** Next.js + TypeScript — one page with upload, staged progress bar, side-by-side players, event timeline, and downloads.
 - **Backend:** Rust + Axum/Tokio — job API, background pipeline, local artifact storage.
-- **Detection and Audio are mock adapters for now.** Mock Detection emits a single impact event at `min(1 second, duration / 3)`; Mock Audio adds a short 880 Hz test tone at that moment while copying the video stream. No real Meta models, Modal deployment, or model credentials are included yet.
+- **Detection is real.** A Python/FastAPI service in [detection/](detection/README.md) calls Muse Spark and SAM 3.1 through the Meta Model API and returns contract-valid `events.json`. Product uses it when `DETECTION_API_URL` is set; otherwise it falls back to Mock Detection (a single impact event at `min(1 second, duration / 3)`).
+- **Audio is still a mock.** Mock Audio does not generate real sound effects yet: it adds a short **880 Hz test tone at each event time**, respecting the event's volume and pan, skipping events with confidence below 0.5, and copying the video stream unchanged. It is a timing placeholder for the real Audio component (AudioGen on Modal), which is not built yet.
+- **No deployment yet.** Everything runs locally; no Modal deployment is included.
 
-The mocks sit behind `DetectionAdapter` / `AudioAdapter` traits and follow the shared `events.json` contract, so the real Detection and Audio components can replace them without changing the API, schema, or UI. Full details: [Product README](product/README.md) and [adapter handoff](product/docs/INTEGRATION.md).
+Adapters sit behind `DetectionAdapter` / `AudioAdapter` traits and follow the shared `events.json` contract, so components can be swapped without changing the API, schema, or UI. Full details: [Product README](product/README.md) and [adapter handoff](product/docs/INTEGRATION.md).
 
 ## Run it locally
 

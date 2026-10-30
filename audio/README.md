@@ -4,6 +4,8 @@
 
 Audio turns `events.json` into a finished MP4. Generating the sounds runs on Modal GPUs; mixing runs on CPU.
 
+**Status: not yet implemented.** Until this component is built, Product's Mock Audio stands in for it: an 880 Hz test tone at each event time (volume/pan applied, confidence < 0.5 skipped, video stream copied). That tone is a timing placeholder, not generated sound.
+
 Shared contract and project context: [Agents.md](../Agents.md) · Upstream: [Detection](../detection/README.md)
 
 ## Input / Output
