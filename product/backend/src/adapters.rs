@@ -78,6 +78,100 @@ pub async fn dependency_available(name: &str) -> bool {
         .await, Ok(Ok(status)) if status.success())
 }
 
+/// Real Detection: HTTP client for the Detection service (detection/service.py).
+/// Submits the clip, polls until done, writes events.json, returns it parsed —
+/// so pipeline validation and file-equality checks pass unchanged.
+pub struct HttpDetection {
+    base_url: String,
+    client: reqwest::Client,
+}
+
+impl HttpDetection {
+    pub fn new(base_url: String) -> Self {
+        Self {
+            base_url: base_url.trim_end_matches('/').to_owned(),
+            client: reqwest::Client::new(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct DetectJob {
+    job_id: String,
+    status: String,
+    error: Option<String>,
+}
+
+#[async_trait]
+impl DetectionAdapter for HttpDetection {
+    async fn detect(&self, video: &Path, output: &Path) -> Result<EventsDocument> {
+        let bytes = fs::read(video)
+            .await
+            .context("Could not read video for Detection.")?;
+        let name = video
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("original.mp4")
+            .to_owned();
+        let part = reqwest::multipart::Part::bytes(bytes)
+            .file_name(name)
+            .mime_str("video/mp4")?;
+        let form = reqwest::multipart::Form::new().part("video", part);
+        let job: DetectJob = self
+            .client
+            .post(format!("{}/detect", self.base_url))
+            .multipart(form)
+            .send()
+            .await
+            .context("Detection service unreachable.")?
+            .error_for_status()
+            .context("Detection service rejected the upload.")?
+            .json()
+            .await
+            .context("Detection service returned an invalid job.")?;
+        let deadline = std::time::Instant::now() + Duration::from_secs(900);
+        loop {
+            let status: DetectJob = self
+                .client
+                .get(format!("{}/detect/{}", self.base_url, job.job_id))
+                .send()
+                .await
+                .context("Detection service unreachable while polling.")?
+                .error_for_status()?
+                .json()
+                .await?;
+            match status.status.as_str() {
+                "completed" => break,
+                "failed" => bail!(
+                    "Detection failed: {}",
+                    status.error.unwrap_or_else(|| "unknown error".into())
+                ),
+                _ => {
+                    ensure!(
+                        std::time::Instant::now() < deadline,
+                        "Detection timed out after 900 seconds."
+                    );
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+            }
+        }
+        let events_bytes = self
+            .client
+            .get(format!("{}/detect/{}/events", self.base_url, job.job_id))
+            .send()
+            .await
+            .context("Detection service unreachable while fetching events.")?
+            .error_for_status()?
+            .bytes()
+            .await?;
+        fs::write(output, &events_bytes)
+            .await
+            .context("Could not write events.json.")?;
+        Ok(serde_json::from_slice(&events_bytes)
+            .context("Detection service returned invalid events.json.")?)
+    }
+}
+
 pub struct MockDetection;
 
 #[async_trait]

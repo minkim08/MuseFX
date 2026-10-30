@@ -4,7 +4,26 @@
 
 Detection turns a video into `events.json`. It is the hardest part, because a sound even 100 ms off feels wrong — timing precision is the priority for this component.
 
-Shared contract and project context: [Agents.md](../Agents.md)
+Shared contract and project context: [Agents.md](../Agents.md) · Implementation plan and decision log: [PLAN.md](PLAN.md)
+
+## Status: implemented (local)
+
+Pipeline core (`pipeline.py`), Meta clients (`meta_client.py`), SAM output parser (`sam_parse.py`), contract/post-processing (`events.py`), FastAPI service (`service.py`), and a thin CLI (`cli.py`). Product calls the service over HTTP (`HttpDetection` adapter, enabled with `DETECTION_API_URL`); the CLI is a dev tool.
+
+Run it:
+
+```sh
+# from the repo root, once
+python3 -m venv .venv && .venv/bin/pip install -r detection/requirements.txt
+# service (reads detection/.env for MODEL_API_KEY)
+.venv/bin/python -m uvicorn detection.service:app --host 127.0.0.1 --port 8100
+# or one-off CLI
+.venv/bin/python -m detection.cli clip.mp4 events.json
+```
+
+Service API: `POST /detect` (multipart `video`) → `202 {job_id, status, stage, progress, error}`; `GET /detect/{job_id}`; `GET /detect/{job_id}/events` (409 until done); `GET /health`.
+
+Phase 0 findings (live, against the real API): auth/model access works (`muse-spark-1.3`, `sam-3.1`); Muse Spark accepts an uploaded video directly (`input_file`), so the scene pass uses the clip itself rather than extracted keyframes; SAM 3.1 takes one short noun-phrase concept per request (zero matches is a valid result) and returns per-frame box lines — SAM concept wording is literal, so the pipeline retries shape/noun variants on zero matches (e.g. "red rectangle" → "red square"). Frame indices map at the clip's native fps.
 
 ## Input / Output
 
@@ -69,13 +88,13 @@ Ship the fallback rather than no output — a roughly-timed event list still let
 
 ## Open questions
 
-Verify against the Meta Model API before writing pipeline code:
+Verify against the Meta Model API before writing pipeline code. Official docs: https://dev.meta.ai/docs/overview
 
-- [ ] Whether Muse Spark accepts video directly or only images
-- [ ] Request size limits (frames per request, image size, payload size)
-- [ ] How SAM 3.1 takes text prompts through the Meta Model API (prompt format for named objects like `"player character"`)
+- [x] Whether Muse Spark accepts video directly or only images — video is accepted directly ([Video understanding](https://dev.meta.ai/docs/video-understanding)); whether to use video or 1 fps keyframes for the scene pass is a cost/accuracy choice to make in the Phase 0 spike
+- [ ] Request size limits (frames per request, image size, payload size) — check the File handling and Pricing/rate limits docs during the spike
+- [x] How SAM 3.1 takes text prompts — name the object in a short text phrase; SAM 3.1 segments images and video through the Model API ([Media segmentation](https://dev.meta.ai/docs/media-segmentation)). Exact request/response shapes still to confirm with a real call
 
-Record the answers here when known, since steps 2, 3, and 5 depend on them.
+Auth: `MODEL_API_KEY` env var, Authorization header at `https://api.meta.ai/v1` ([Authentication](https://dev.meta.ai/docs/authentication)). Key lives in the local gitignored `detection/.env` — never commit or print it.
 
 ## Testing this component alone
 

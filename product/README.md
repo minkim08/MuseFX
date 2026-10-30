@@ -1,6 +1,6 @@
 # Product — Component 3: App and Integration
 
-Next.js + TypeScript frontend and Rust/Axum backend for MuseFX. This local MVP uses replaceable mock Detection and Audio adapters; no real Meta models, Modal deployment, or model credentials are required.
+Next.js + TypeScript frontend and Rust/Axum backend for MuseFX. This local MVP uses replaceable adapters: real Detection (Python/FastAPI service calling Muse Spark + SAM 3.1) when `DETECTION_API_URL` is set, Mock Detection otherwise; Audio is still Mock Audio (880 Hz test tones, no real sound generation). No Modal deployment is included.
 
 The Rust backend follows the user's requested stack change. The shared [`events.json` and stage contract](../Agents.md) is preserved: Product stores and passes Detection's document through to Audio without translating its schema. Detection and Audio remain independently owned components.
 
@@ -73,6 +73,7 @@ curl http://localhost:8000/jobs/JOB_ID/result
 | `BIND_ADDR` | `127.0.0.1:8000` | Backend listener |
 | `FRONTEND_ORIGIN` | `http://localhost:3000` | Allowed CORS origin |
 | `RUST_LOG` | `video_to_sfx=info,tower_http=info` | Backend logs |
+| `DETECTION_API_URL` | _(unset = mock)_ | Detection service base URL (e.g. `http://127.0.0.1:8100`); enables the real `HttpDetection` adapter |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Frontend API origin |
 
 Export backend variables before `cargo run`; `.env` files are not automatically loaded. Frontend configuration can use `frontend/.env.local`; examples are included in both components.
