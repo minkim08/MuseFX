@@ -1,6 +1,6 @@
 # Testing Audio (Component 2)
 
-Steps 1–4 test the whole Audio pipeline with synthetic sounds, with no GPU or account. Step 5 tests real AudioGen on Baseten, and step 6 tests it with real Detection output.
+Steps 1–4 test the whole Audio pipeline with synthetic sounds, with no GPU or account. Step 5 tests real AudioGen on Runpod, and step 6 tests it with real Detection output.
 
 ## Before you start
 
@@ -22,7 +22,7 @@ ffmpeg comes with the requirements, so you don't need to install it separately. 
 .venv/bin/python -m pytest
 ```
 
-**Expected:** all 24 tests pass. They check that sounds start on their event time, the mix stays under -1 dBFS, fades prevent clicks, repeated sounds vary, and the video stream is copied unchanged.
+**Expected:** all 33 tests pass. They check that sounds start on their event time, the mix stays under -1 dBFS, fades prevent clicks, repeated sounds vary, the video stream is copied unchanged, and a 6-minute cold start with network failures still succeeds.
 
 ## 2. Make a test clip
 
@@ -77,13 +77,13 @@ There should be no clicks, pops or distortion. The picture should look identical
 
 ## 4. Check bad input
 
-Missing Baseten credentials:
+Missing Runpod credentials:
 
 ```bash
-env -u BASETEN_MODEL_ID -u BASETEN_API_KEY .venv/bin/python -m musefx_audio outputs/sample.mp4 fixtures/sample_events.json -o outputs/x.mp4
+env -u RUNPOD_ENDPOINT_ID -u RUNPOD_API_KEY .venv/bin/python -m musefx_audio outputs/sample.mp4 fixtures/sample_events.json -o outputs/x.mp4
 ```
 
-**Expected:** `error: Set BASETEN_MODEL_ID and BASETEN_API_KEY (or use --fake).`
+**Expected:** `error: Set RUNPOD_ENDPOINT_ID and RUNPOD_API_KEY (or use --fake).`
 
 An invalid `events.json`:
 
@@ -97,50 +97,49 @@ sed 's/"pan": -0.2/"pan": -5/' fixtures/sample_events.json > outputs/bad.json
 
 **Expected:** `error: events[0] (e1): pan must be between -1 and 1, got -5.0`
 
-## 5. Test real AudioGen on Baseten
+## 5. Test real AudioGen on Runpod
 
-This step hasn't been run yet, so expect to fix problems on the first deploy.
+This step hasn't been run yet, so expect to fix problems on the first deploy. Real runs cost money: Runpod lists 16 GB Serverless GPUs at about $0.58/hour, billed while a worker is running, including during cold starts.
 
-1. Create a Baseten API key that can deploy: a personal key, or a team key with **Manage and call all team models**. Other team keys fail on deploy with an authorization error.
-2. Install Truss, log in, and deploy:
+### Deploy the worker
 
-    ```bash
-    .venv/bin/pip install truss
-    ```
+1. In Runpod, add funds and create an API key under **Settings → API Keys**.
+2. Connect GitHub under **Settings → Connections**, and give Runpod access to the `minkim08/MuseFX` repo. The repo owner may need to approve this.
+3. Go to **Serverless → New Endpoint**, choose the GitHub repo, and set:
 
-    ```bash
-    cd baseten/audiogen
-    ```
+    | Setting | Value |
+    |---|---|
+    | Branch | `main` |
+    | Dockerfile Path | `audio/runpod/Dockerfile` |
+    | Build Context | The repo root |
+    | GPU | 16 GB or more |
+    | Active workers | 0 |
+    | Max workers | 1 |
+    | FlashBoot | On |
 
-    ```bash
-    ../../.venv/bin/truss login
-    ```
+4. Wait for the build to finish. Copy the **endpoint ID** from the endpoint page.
 
-    ```bash
-    ../../.venv/bin/truss push
-    ```
+Pushing to GitHub doesn't update the endpoint. To deploy a change, create a new GitHub release.
 
-    The first deployment goes to production automatically. For later deployments, use `truss push --promote`.
+### Run it
 
-3. Wait for the deployment to become active in the Baseten dashboard, then go back to the `audio` folder and set your credentials. The tool doesn't read `.env` files, so these must be exported in the same terminal:
+Set your credentials in the same terminal. The tool doesn't read `.env` files.
 
-    ```bash
-    cd ../..
-    ```
+```bash
+export RUNPOD_ENDPOINT_ID=your_endpoint_id
+```
 
-    ```bash
-    export BASETEN_MODEL_ID=your_model_id
-    ```
+```bash
+export RUNPOD_API_KEY=your_api_key
+```
 
-    ```bash
-    export BASETEN_API_KEY=your_api_key
-    ```
+Then run without `--fake`:
 
-4. Run without `--fake`:
+```bash
+.venv/bin/python -m musefx_audio outputs/sample.mp4 fixtures/sample_events.json -o outputs/real.mp4
+```
 
-    ```bash
-    .venv/bin/python -m musefx_audio outputs/sample.mp4 fixtures/sample_events.json -o outputs/real.mp4
-    ```
+The first run has to start a GPU worker, which can take 5 minutes or more. That's normal: every 30 seconds it prints `waiting for a GPU worker (...)`, and it waits up to 30 minutes per job.
 
 **Expected last line on the first run:**
 
@@ -148,9 +147,11 @@ This step hasn't been run yet, so expect to fix problems on the first deploy.
 wrote outputs/real.mp4: 9 events played, 1 skipped, 7 sounds generated, 0 from cache
 ```
 
-The first run is slower because the GPU has to start. Listen using the table in step 3, and also check that each sound matches its prompt in `fixtures/sample_events.json`. For example, the 5.50 sound should be a bright coin chime.
+Listen using the table in step 3, and also check that each sound matches its prompt in `fixtures/sample_events.json`. For example, the 5.50 sound should be a bright coin chime.
 
-Real sounds are saved in `.cache/sounds/audiogen`. To generate them fresh after changing the Truss, clear that folder first:
+If it fails, the error names the problem, such as a bad API key or the worker running out of GPU memory. For out-of-memory errors, lower `AUDIOGEN_MAX_BATCH` in the endpoint's environment variables. If it waits the full 30 minutes, the worker probably crashed while starting, so check the endpoint's logs.
+
+Real sounds are saved in `.cache/sounds/audiogen`. To generate them fresh after changing the worker, clear that folder first:
 
 ```bash
 rm -rf .cache/sounds/audiogen

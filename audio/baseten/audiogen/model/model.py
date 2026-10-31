@@ -1,4 +1,4 @@
-"""Baseten Truss serving AudioGen for MuseFX.
+"""AudioGen model for MuseFX, used by the Runpod worker (audio/runpod) and the Baseten Truss.
 
 Request:  {"prompts": [str], "durations": [float], "n_candidates": 3, "seed": 0}
 Response: {"sample_rate": 16000, "candidates": [[base64 PCM16 mono, ...] per prompt]}
@@ -9,13 +9,14 @@ mixer trims), then each is cut to its own duration.
 """
 
 import base64
+import os
 
 import numpy as np
 import torch
 from audiocraft.models import AudioGen
 
-WEIGHTS_DIR = "/models/audiogen-medium"
-MAX_BATCH = 24
+WEIGHTS = os.environ.get("AUDIOGEN_WEIGHTS", "/models/audiogen-medium")
+MAX_BATCH = int(os.environ.get("AUDIOGEN_MAX_BATCH", "24"))
 MAX_SECONDS = 10.0
 PAD_SECONDS = 0.5
 MAX_CANDIDATES = 5
@@ -26,7 +27,7 @@ class Model:
         self._model = None
 
     def load(self):
-        self._model = AudioGen.get_pretrained(WEIGHTS_DIR, device="cuda")
+        self._model = AudioGen.get_pretrained(WEIGHTS, device="cuda")
 
     def predict(self, request: dict) -> dict:
         prompts = [str(p) for p in request["prompts"]]
