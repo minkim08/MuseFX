@@ -1,0 +1,7 @@
+# Local dependencies for the Audio component. AudioGen itself runs on Baseten
+# (see baseten/audiogen/config.yaml) and is not installed locally.
+numpy==2.5.4
+scipy==1.18.1
+soundfile==0.14.0
+imageio-ffmpeg==0.7.0  # bundled ffmpeg; a system ffmpeg on PATH is used first
+pytest==9.2.0

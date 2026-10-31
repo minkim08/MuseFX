@@ -1,0 +1,22 @@
+# AudioGen (Meta AudioCraft) on Baseten. Deploy from this folder: `truss push`
+# Weights are licensed for non-commercial use only (see the repo README).
+model_name: musefx-audiogen
+python_version: py310
+system_packages:
+  - ffmpeg
+  - build-essential
+  - pkg-config
+requirements:
+  - torch==2.1.0
+  - torchaudio==2.1.0
+  - numpy<2
+  - audiocraft==1.3.0
+resources:
+  accelerator: A10G
+  cpu: "4"
+  memory: 20Gi
+# Mirrored to Baseten before the replica starts, so cold starts don't download
+# AudioGen again. Pin @main to a commit SHA once a deploy works.
+weights:
+  - source: "hf://facebook/audiogen-medium@main"
+    mount_location: "/models/audiogen-medium"

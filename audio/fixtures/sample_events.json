@@ -1,0 +1,16 @@
+{
+  "video": { "id": "sample", "duration": 8.0, "fps": 30 },
+  "events": [
+    { "id": "e1", "t": 0.50, "duration": 0.3, "type": "footstep", "prompt": "sneaker step on wooden floor, indoors", "volume": 0.7, "pan": -0.2, "confidence": 0.9 },
+    { "id": "e2", "t": 0.95, "duration": 0.3, "type": "footstep", "prompt": "sneaker step on wooden floor, indoors", "volume": 0.7, "pan": -0.1, "confidence": 0.9 },
+    { "id": "e3", "t": 1.40, "duration": 0.3, "type": "footstep", "prompt": "sneaker step on wooden floor, indoors", "volume": 0.7, "pan": 0.0, "confidence": 0.85 },
+    { "id": "e4", "t": 1.85, "duration": 0.3, "type": "footstep", "prompt": "sneaker step on wooden floor, indoors", "volume": 0.7, "pan": 0.1, "confidence": 0.85 },
+    { "id": "e5", "t": 2.60, "duration": 0.4, "type": "whoosh", "prompt": "fast sword swing whoosh", "volume": 0.6, "pan": 0.2, "confidence": 0.8 },
+    { "id": "e6", "t": 2.90, "duration": 0.6, "type": "impact", "prompt": "heavy punch hitting a wooden crate", "volume": 0.95, "pan": 0.3, "confidence": 0.95 },
+    { "id": "e7", "t": 4.20, "duration": 1.0, "type": "door", "prompt": "wooden door creaks open", "volume": 0.8, "pan": 0.6, "confidence": 0.8 },
+    { "id": "e8", "t": 5.50, "duration": 0.5, "type": "pickup", "prompt": "bright coin pickup chime, video game", "volume": 0.6, "pan": 0.0, "confidence": 0.9 },
+    { "id": "e9", "t": 6.30, "duration": 0.2, "type": "ui", "prompt": "soft menu button click", "volume": 0.5, "pan": 0.0, "confidence": 0.9 },
+    { "id": "e10", "t": 7.00, "duration": 0.5, "type": "hit", "prompt": "glass bottle breaking", "volume": 0.9, "pan": -0.5, "confidence": 0.3 }
+  ],
+  "ambience": { "prompt": "quiet indoor room tone, distant birds outside", "volume": 0.3 }
+}

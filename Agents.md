@@ -54,7 +54,7 @@ One upload runs through three owned stages, joined by `events.json`. Each person
 | Detection | Person 1 · Meta Model API | Extract frames (ffmpeg, 10 fps) → Understand scene (Muse Spark) → Track and time (SAM 3.1) → Write prompts (Muse Spark) → emits `events.json` |
 | Audio | Person 2 · GPUs | Generate options (AudioGen, 3 per event, in parallel) → Pick the best (sharpest start, best match, cached by prompt) → Mix and merge (fades, pan and volume, ffmpeg into the MP4) → Finished MP4 to the web app |
 
-**Hosting (confirmed):** AudioGen generation runs on **Modal GPUs** (mixing on CPU); the original backend hosting design was **FastAPI on Modal**, per the diagram. **Product implementation update:** the user requested Rust; the current Product MVP is Rust/Axum running locally. Its hosting integration is pending, while the shared events/API contracts remain unchanged. Earlier "Audio on Baseten" wording is superseded.
+**Hosting (confirmed):** AudioGen generation runs on **Baseten GPUs** (we have free Baseten credits; mixing on CPU); the original backend hosting design was **FastAPI on Modal**, per the diagram. **Product implementation update:** the user requested Rust; the current Product MVP is Rust/Axum running locally. Its hosting integration is pending, while the shared events/API contracts remain unchanged. Earlier "AudioGen on Modal" wording is superseded.
 
 ## Team contract: roles, handoffs, and done
 
@@ -63,7 +63,7 @@ Each person owns one part end to end, hands off one artifact, and is done agains
 | Role | Owns | Hands off | Done when |
 |---|---|---|---|
 | Person 1: Detection | Frame extraction, Muse Spark scene and prompts, SAM 3.1 tracking and timing | `events.json` for any clip | Events on 5 test clips land within 100 ms of the real moment |
-| Person 2: Audio | AudioGen on Modal, picking the best option, the mixer and ffmpeg merge | Finished MP4 with sound | A clean mix with no clicks or clipping from a hand-written `events.json` |
+| Person 2: Audio | AudioGen on Baseten, picking the best option, the mixer and ffmpeg merge | Finished MP4 with sound | A clean mix with no clicks or clipping from a hand-written `events.json` |
 | Person 3: Product | Backend and job API, web app, test clips, demo video, submission | Live app and demo video | Upload to result works in the browser for any test clip |
 
 ## Interface contract: `events.json`
