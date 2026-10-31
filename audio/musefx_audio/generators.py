@@ -21,6 +21,8 @@ PROMPTS_PER_REQUEST = 8
 
 
 class Generator(Protocol):
+    name: str  # cache namespace: sounds from different generators are never shared
+
     def generate(
         self, prompts: list[str], durations: list[float], n_candidates: int, seed: int
     ) -> tuple[int, list[list[np.ndarray]]]: ...
@@ -28,6 +30,8 @@ class Generator(Protocol):
 
 class BasetenGenerator:
     """Calls the AudioGen Truss in audio/baseten/audiogen over HTTPS."""
+
+    name = "audiogen"
 
     def __init__(
         self,
@@ -86,6 +90,7 @@ class FakeGenerator:
     a real choice to make.
     """
 
+    name = "fake"
     sample_rate = 16000
 
     def __init__(self):

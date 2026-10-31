@@ -4,17 +4,7 @@ Steps 1–4 test the whole Audio pipeline with synthetic sounds, with no GPU or 
 
 ## Before you start
 
-The Audio code is in [PR #5](https://github.com/minkim08/MuseFX/pull/5). Until it merges, test on its branch:
-
-```bash
-git fetch origin
-```
-
-```bash
-git switch audio/component-2
-```
-
-Then set up once. Run this and every later command from the `audio` folder:
+Set up once. Run this and every later command from the `audio` folder:
 
 ```bash
 cd audio
@@ -32,7 +22,7 @@ ffmpeg comes with the requirements, so you don't need to install it separately. 
 .venv/bin/python -m pytest
 ```
 
-**Expected:** all 23 tests pass. They check that sounds start on their event time, the mix stays under -1 dBFS, fades prevent clicks, repeated sounds vary, and the video stream is copied unchanged.
+**Expected:** all 24 tests pass. They check that sounds start on their event time, the mix stays under -1 dBFS, fades prevent clicks, repeated sounds vary, and the video stream is copied unchanged.
 
 ## 2. Make a test clip
 
@@ -48,10 +38,8 @@ mkdir -p outputs
 
 ## 3. Run with fake sounds
 
-Use the separate `.cache/fake` folder. See the warning under step 5 for why.
-
 ```bash
-.venv/bin/python -m musefx_audio outputs/sample.mp4 fixtures/sample_events.json -o outputs/fake.mp4 --fake --cache-dir .cache/fake
+.venv/bin/python -m musefx_audio outputs/sample.mp4 fixtures/sample_events.json -o outputs/fake.mp4 --fake
 ```
 
 **Expected last line:**
@@ -72,7 +60,7 @@ Open the result and listen:
 open outputs/fake.mp4
 ```
 
-Fake sounds are short synthetic bursts, so only check timing and level here.
+Fake sounds are short synthetic bursts, so only check timing and level here. They are cached separately from real sounds, so they can't end up in a real run.
 
 | Time (s) | You should hear |
 |---|---|
@@ -104,14 +92,12 @@ sed 's/"pan": -0.2/"pan": -5/' fixtures/sample_events.json > outputs/bad.json
 ```
 
 ```bash
-.venv/bin/python -m musefx_audio outputs/sample.mp4 outputs/bad.json -o outputs/x.mp4 --fake --cache-dir .cache/fake
+.venv/bin/python -m musefx_audio outputs/sample.mp4 outputs/bad.json -o outputs/x.mp4 --fake
 ```
 
 **Expected:** `error: events[0] (e1): pan must be between -1 and 1, got -5.0`
 
 ## 5. Test real AudioGen on Baseten
-
-> **Warning:** the cache doesn't record whether a sound was fake or real. If `--fake` and a real run share a cache folder, the real run silently reuses the fake sounds and reports them as `from cache`. Only use `--fake` with `--cache-dir .cache/fake`, as shown above.
 
 This step hasn't been run yet, so expect to fix problems on the first deploy.
 
@@ -164,10 +150,10 @@ wrote outputs/real.mp4: 9 events played, 1 skipped, 7 sounds generated, 0 from c
 
 The first run is slower because the GPU has to start. Listen using the table in step 3, and also check that each sound matches its prompt in `fixtures/sample_events.json`. For example, the 5.50 sound should be a bright coin chime.
 
-Real sounds are saved in `.cache/sounds`. To generate them fresh after changing the Truss, clear that folder first:
+Real sounds are saved in `.cache/sounds/audiogen`. To generate them fresh after changing the Truss, clear that folder first:
 
 ```bash
-rm -rf .cache/sounds
+rm -rf .cache/sounds/audiogen
 ```
 
 ## 6. Test with real Detection output

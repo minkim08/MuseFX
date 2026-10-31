@@ -47,7 +47,7 @@ def render(
     video_duration = probe_duration(video_path)  # the real length wins over events.json
     events = [e for e in events_file.audible_events() if e.t < video_duration]
     ambience = events_file.ambience
-    cache = SoundCache(cache_dir)
+    cache = SoundCache(cache_dir, generator.name)
 
     # One sound per distinct (prompt, duration); repeats reuse it.
     wanted: dict[str, tuple[str, float, bool]] = {}

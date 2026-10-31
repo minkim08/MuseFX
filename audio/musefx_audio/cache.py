@@ -12,8 +12,9 @@ import soundfile as sf
 
 
 class SoundCache:
-    def __init__(self, directory: str | Path):
-        self.directory = Path(directory)
+    def __init__(self, directory: str | Path, namespace: str):
+        # One folder per generator, so fake sounds can never stand in for real ones.
+        self.directory = Path(directory) / namespace
         self.directory.mkdir(parents=True, exist_ok=True)
 
     @staticmethod

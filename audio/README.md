@@ -81,4 +81,4 @@ render("in.mp4", "events.json", "out.mp4", BasetenGenerator(),
        on_progress=lambda stage, fraction: ...)  # stage: "generating" or "mixing"
 ```
 
-Picked sounds are cached in `audio/.cache/sounds` by prompt and duration; pass `cache_dir` to put the cache on a shared volume.
+Picked sounds are cached in `audio/.cache/sounds` by prompt and duration, with a separate folder per generator so fake sounds are never reused by a real run. Pass `cache_dir` to put the cache on a shared volume.

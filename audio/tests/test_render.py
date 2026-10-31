@@ -35,6 +35,19 @@ def test_end_to_end_with_fake_sounds(sample_video, sample_events, tmp_path):
     assert abs(probe_duration(out) - probe_duration(sample_video)) < 0.1
 
 
+def test_fake_sounds_are_never_reused_by_a_real_generator(sample_video, sample_events, tmp_path):
+    cache = tmp_path / "cache"
+    render(sample_video, sample_events, tmp_path / "a.mp4", FakeGenerator(), cache_dir=cache)
+
+    class RealGenerator(FakeGenerator):
+        name = "audiogen"
+
+    generator = RealGenerator()
+    result = render(sample_video, sample_events, tmp_path / "b.mp4", generator, cache_dir=cache)
+    assert generator.calls == 2
+    assert result.sounds_generated == 7 and result.sounds_from_cache == 0
+
+
 def test_second_run_reuses_cached_sounds(sample_video, sample_events, tmp_path):
     cache = tmp_path / "cache"
     render(sample_video, sample_events, tmp_path / "a.mp4", FakeGenerator(), cache_dir=cache)
