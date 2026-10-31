@@ -4,6 +4,8 @@
 
 Audio turns `events.json` into a finished MP4. Generating the sounds runs on Baseten GPUs; mixing runs on CPU.
 
+**Status: built, not yet wired into the backend.** Product's Mock Audio (an 880 Hz test tone at each event time) stays in place until a Rust `AudioAdapter` calls this component; see [INTEGRATION.md](../product/docs/INTEGRATION.md).
+
 Shared contract and project context: [Agents.md](../Agents.md) · Upstream: [Detection](../detection/README.md)
 
 ## Input / Output

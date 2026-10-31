@@ -50,11 +50,11 @@ One upload runs through three owned stages, joined by `events.json`. Each person
 
 | Part | Owner | What it does |
 |---|---|---|
-| Product | Person 3 | Web app (upload, progress, side-by-side) + Backend (FastAPI on Modal, runs each job): web app uploads video to backend |
+| Product | Person 3 | Web app (upload, progress, side-by-side) + Backend (Rust/Axum local MVP, runs each job; hosting pending): web app uploads video to backend |
 | Detection | Person 1 · Meta Model API | Extract frames (ffmpeg, 10 fps) → Understand scene (Muse Spark) → Track and time (SAM 3.1) → Write prompts (Muse Spark) → emits `events.json` |
 | Audio | Person 2 · GPUs | Generate options (AudioGen, 3 per event, in parallel) → Pick the best (sharpest start, best match, cached by prompt) → Mix and merge (fades, pan and volume, ffmpeg into the MP4) → Finished MP4 to the web app |
 
-**Hosting (confirmed):** AudioGen generation runs on **Baseten GPUs** (we have free Baseten credits; mixing on CPU); the Backend is **FastAPI on Modal**, per the diagram. Earlier "AudioGen on Modal" wording is superseded.
+**Hosting (confirmed):** AudioGen generation runs on **Baseten GPUs** (we have free Baseten credits; mixing on CPU); the original backend hosting design was **FastAPI on Modal**, per the diagram. **Product implementation update:** the user requested Rust; the current Product MVP is Rust/Axum running locally. Its hosting integration is pending, while the shared events/API contracts remain unchanged. Earlier "AudioGen on Modal" wording is superseded.
 
 ## Team contract: roles, handoffs, and done
 
