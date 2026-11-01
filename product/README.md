@@ -6,7 +6,7 @@ The Rust backend follows the user's requested stack change. The shared [`events.
 
 ## Run locally
 
-Install stable Rust/Cargo, Node.js 22+, and FFmpeg/ffprobe. On macOS:
+Install stable Rust/Cargo (recent: 1.82 is too old for the locked dependencies), Node.js 22+, and FFmpeg/ffprobe. On macOS:
 
 ```sh
 brew install rust node@22 ffmpeg
@@ -74,6 +74,9 @@ curl http://localhost:8000/jobs/JOB_ID/result
 | `FRONTEND_ORIGIN` | `http://localhost:3000` | Allowed CORS origin |
 | `RUST_LOG` | `video_to_sfx=info,tower_http=info` | Backend logs |
 | `DETECTION_API_URL` | _(unset = mock)_ | Detection service base URL (e.g. `http://127.0.0.1:8100`); enables the real `HttpDetection` adapter |
+| `AUDIO_DIR` | _(unset = mock)_ | Path to the `audio/` folder (e.g. `../../audio`); enables the real `PythonAudio` adapter. Needs `audio/.venv` |
+| `AUDIO_FAKE` | _(unset)_ | Set to `1` to use synthetic sounds through the real Audio pipeline, with no GPU |
+| `RUNPOD_ENDPOINT_ID`, `RUNPOD_API_KEY` | _(unset)_ | Required by real Audio unless `AUDIO_FAKE=1` |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Frontend API origin |
 
 Export backend variables before `cargo run`; `.env` files are not automatically loaded. Frontend configuration can use `frontend/.env.local`; examples are included in both components.

@@ -1,6 +1,6 @@
 # Detection and Audio handoff
 
-The backend uses `MockAudio` until the real Audio component is ready. Real Detection is implemented as the Detection API service in [`detection/`](../../detection/README.md); the backend's `HttpDetection` adapter calls it when `DETECTION_API_URL` is set (mock otherwise). The shared [`events.json` contract](../../Agents.md#interface-contract-eventsjson) is authoritative; see the [example](events.example.json).
+The backend uses `MockAudio` unless `AUDIO_DIR` is set, which enables `PythonAudio`: it runs the component in [`audio/`](../../audio/README.md) as a subprocess, with its own 60-minute limit because a GPU cold start can exceed `run_media`'s 180 seconds. Real Detection is implemented as the Detection API service in [`detection/`](../../detection/README.md); the backend's `HttpDetection` adapter calls it when `DETECTION_API_URL` is set (mock otherwise). The shared [`events.json` contract](../../Agents.md#interface-contract-eventsjson) is authoritative; see the [example](events.example.json).
 
 ## Detection
 
