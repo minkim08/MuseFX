@@ -4,7 +4,7 @@
 
 Audio turns `events.json` into a finished MP4. Generating the sounds runs on Runpod GPUs; mixing runs on CPU.
 
-**Status: built, not yet wired into the backend.** Product's Mock Audio (an 880 Hz test tone at each event time) stays in place until a Rust `AudioAdapter` calls this component; see [INTEGRATION.md](../product/docs/INTEGRATION.md).
+**Status: built and connected.** Product's backend runs this component when `AUDIO_DIR` is set, through its `PythonAudio` adapter; see [INTEGRATION.md](../product/docs/INTEGRATION.md). Without it, the backend uses Mock Audio.
 
 Shared contract and project context: [Agents.md](../Agents.md) · Upstream: [Detection](../detection/README.md)
 
@@ -35,7 +35,7 @@ Rules from the contract that Audio owns:
 3. **Vary pitch slightly (±2 semitones) and volume (±3 dB)** between repeated footsteps so they don't sound robotic.
 4. Apply `volume` and `pan` (from `events.json`), then lay the **ambience bed** underneath at low volume.
 5. **Limit the final mix** to avoid clipping (peak at **-1 dBFS**).
-6. Merge the audio into the video with **ffmpeg**; the video stream is **copied, not re-encoded**.
+6. Merge the audio into the video with **ffmpeg**, mixing it over any audio the clip already has; the video stream is **copied, not re-encoded**.
 
 ## Tools
 
@@ -44,7 +44,7 @@ Python, Runpod Serverless, AudioCraft, `numpy`/`scipy` for mixing, `ffmpeg`.
 ## Watch out for
 
 - **Licence:** AudioGen weights are licensed for **non-commercial use only**. MuseFX is a non-commercial hackathon project and uses them on that basis; do not reuse or present this stack as commercial-ready.
-- **Cold starts:** a cold start can take **5 minutes or more**. The client submits a job and polls it, retrying network failures, and waits up to 30 minutes per job, so a slow start only means a longer wait. Anything that calls Audio needs a timeout to match: Product's 180-second `run_media` limit is too short for a cold start.
+- **Cold starts:** a cold start can take **5 minutes or more**. The client submits a job and polls it, retrying network failures, and waits up to 30 minutes per job, so a slow start only means a longer wait. Anything that calls Audio needs a timeout to match; Product's `PythonAudio` adapter allows 60 minutes.
 - **Before a live demo:** send one request first to wake a worker, or set **Active workers** to 1 for the demo (this bills continuously, so set it back to 0 afterwards).
 
 ## Testing this component alone
@@ -68,7 +68,7 @@ Offline, with synthetic sounds instead of AudioGen (no GPU or account needed):
 
 With AudioGen on Runpod, deploy the worker and set `RUNPOD_ENDPOINT_ID` and `RUNPOD_API_KEY`, then drop `--fake`. See step 5 of [TESTING.md](TESTING.md).
 
-From Python (for the Backend):
+From Python:
 
 ```python
 from musefx_audio import render

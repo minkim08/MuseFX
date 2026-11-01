@@ -22,7 +22,7 @@ ffmpeg comes with the requirements, so you don't need to install it separately. 
 .venv/bin/python -m pytest
 ```
 
-**Expected:** all 33 tests pass. They check that sounds start on their event time, the mix stays under -1 dBFS, fades prevent clicks, repeated sounds vary, the video stream is copied unchanged, and a 6-minute cold start with network failures still succeeds.
+**Expected:** all 34 tests pass. They check that sounds start on their event time, the mix stays under -1 dBFS, fades prevent clicks, repeated sounds vary, the video stream is copied unchanged, and a 6-minute cold start with network failures still succeeds.
 
 ## 2. Make a test clip
 
@@ -99,7 +99,7 @@ sed 's/"pan": -0.2/"pan": -5/' fixtures/sample_events.json > outputs/bad.json
 
 ## 5. Test real AudioGen on Runpod
 
-This step hasn't been run yet, so expect to fix problems on the first deploy. Real runs cost money: Runpod lists 16 GB Serverless GPUs at about $0.58/hour, billed while a worker is running, including during cold starts.
+This step hasn't been run yet, so expect to fix problems on the first deploy. Real runs cost money: Our endpoint uses a 24 GB GPU, listed at $0.75/hour and billed while a worker is running, including during cold starts.
 
 ### Deploy the worker
 
@@ -112,14 +112,18 @@ This step hasn't been run yet, so expect to fix problems on the first deploy. Re
     | Branch | `main` |
     | Dockerfile Path | `audio/runpod/Dockerfile` |
     | Build Context | The repo root |
-    | GPU | 16 GB or more |
+    | GPU | 24 GB, on the **Previous generation** tab (the image uses CUDA 12.1) |
     | Active workers | 0 |
     | Max workers | 1 |
     | FlashBoot | On |
+    | Execution timeout | 900 seconds |
+    | Container disk | 30 GB (the 5 GB default is too small) |
+
+    Runpod warns it can't find `runpod.serverless.start()`. That's a false alarm when the code isn't on `main`, so choose **Continue anyway**.
 
 4. Wait for the build to finish. Copy the **endpoint ID** from the endpoint page.
 
-Pushing to GitHub doesn't update the endpoint. To deploy a change, create a new GitHub release.
+Runpod's page says a push to the endpoint's branch starts a build, though we haven't confirmed that. Don't cancel a build: on our first endpoint that left it unable to rebuild, even after new GitHub releases, and we had to create a new endpoint.
 
 ### Run it
 
@@ -167,7 +171,16 @@ Run Detection on a real clip by following [detection/README.md](../detection/REA
 
 Check that sounds land on the actions you see. A sound 100 ms off feels wrong. If timing is off, compare the `t` values in `events.json` with the video to tell whether the problem is in Detection or Audio.
 
+## 7. Test on the website
+
+Follow "Full run (real Detection and real Audio)" in the [main README](../README.md). To try the site without spending money, use `AUDIO_FAKE=1`.
+
+The website only accepts MP4. Convert other clips without re-encoding:
+
+```bash
+ffmpeg -i clip.mov -c copy -movflags +faststart clip.mp4
+```
+
 ## Known limitations
 
-- Audio isn't connected to the backend yet. Product's Mock Audio test tone stays in place until a Rust `AudioAdapter` calls this component.
-- Any audio already in the input clip is replaced, not kept, so test with silent clips for now.
+- During a real run the website shows "Mixing" for the whole generation step, including any cold start.
