@@ -473,3 +473,91 @@ async fn successful_adapter_job_returns_compatible_results_and_downloads() {
         StatusCode::NOT_FOUND
     );
 }
+
+#[tokio::test]
+async fn retiming_events_remixes_and_validates() {
+    use video_to_sfx::models::{Event, EventType};
+    struct OneEvent;
+    #[async_trait]
+    impl DetectionAdapter for OneEvent {
+        async fn detect(&self, _: &Path, output: &Path) -> Result<EventsDocument> {
+            let events = EventsDocument {
+                video: Video {
+                    id: "test".into(),
+                    duration: 2.0,
+                    fps: 24.0,
+                },
+                events: vec![Event {
+                    id: "e1".into(),
+                    t: 0.5,
+                    duration: 0.4,
+                    event_type: EventType::Impact,
+                    prompt: "thud".into(),
+                    volume: 0.8,
+                    pan: 0.0,
+                    confidence: 0.9,
+                }],
+                ambience: None,
+            };
+            fs::write(output, serde_json::to_vec(&events)?).await?;
+            Ok(events)
+        }
+    }
+    // Records the time of the first event, so the test can see what was mixed.
+    struct Recording;
+    #[async_trait]
+    impl AudioAdapter for Recording {
+        async fn render(&self, video: &Path, events: &EventsDocument, output: &Path) -> Result<()> {
+            fs::copy(video, output).await?;
+            fs::write(output.with_extension("t"), events.events[0].t.to_string()).await?;
+            Ok(())
+        }
+    }
+    let dir = TestDir::new();
+    let state = AppState {
+        store: JobStore::new(dir.path().to_owned()).await.unwrap(),
+        detection: Arc::new(OneEvent),
+        audio: Arc::new(Recording),
+    };
+    let app = router(state.clone(), "http://localhost:3000").unwrap();
+    let queued: Job = serde_json::from_value(
+        json(
+            app.clone()
+                .oneshot(upload("clip.mp4", b"fixture"))
+                .await
+                .unwrap(),
+        )
+        .await,
+    )
+    .unwrap();
+    let id = finish(&state, queued.job_id).await.job_id;
+    let patch = |body: &str| {
+        Request::patch(format!("/jobs/{id}/events"))
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_owned()))
+            .unwrap()
+    };
+
+    let response = app
+        .clone()
+        .oneshot(patch(r#"{"events":[{"id":"e1","t":1.25}]}"#))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(json(response).await["events"]["events"][0]["t"], 1.25);
+    let saved = json(get(&app, &format!("/jobs/{id}/result")).await).await;
+    assert_eq!(saved["events"]["events"][0]["t"], 1.25);
+    assert_eq!(saved["events"]["events"][0]["prompt"], "thud");
+
+    // Past the end of the clip, and unknown ids, are rejected and change nothing.
+    for body in [
+        r#"{"events":[{"id":"e1","t":1.9}]}"#,
+        r#"{"events":[{"id":"nope","t":1.0}]}"#,
+    ] {
+        let response = app.clone().oneshot(patch(body)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(json(response).await["detail"].is_string());
+    }
+    let saved = json(get(&app, &format!("/jobs/{id}/result")).await).await;
+    assert_eq!(saved["events"]["events"][0]["t"], 1.25);
+}

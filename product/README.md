@@ -41,7 +41,7 @@ Upload `sample.mp4`. Mock Detection emits an impact event at `min(1 second, dura
 
 - Streamed MP4 uploads, up to 100 MB. Mock Detection validates the team limits of 60 seconds and 1080p (including portrait equivalents).
 - Polling through `detecting`, `describing`, `generating`, `mixing`, `done`, or `failed`, with monotonic milestone progress. Fast mock stages may pass between polls.
-- Original/result playback, event markers, clickable event rows, and downloads.
+- Original/result playback, draggable event markers (or ← → keys; Shift for 0.1 s) that re-mix the video to fix sync, clickable event rows, and downloads.
 - Readable validation/pipeline errors, connection timeouts, and manual reconnection.
 - Local JSON metadata with atomic writes. Interrupted jobs are marked failed on startup.
 
@@ -52,6 +52,7 @@ Upload `sample.mp4`. Mock Detection emits an impact event at `min(1 second, dura
 | `POST /jobs` | Multipart field `video`; HTTP 202 job with `job_id`, `status`, `stage`, `progress`, `error` |
 | `GET /jobs/{id}` | Current job metadata |
 | `GET /jobs/{id}/result` | `original_video_url`, `result_video_url`, `events_url`, parsed `events`; HTTP 409 until complete |
+| `PATCH /jobs/{id}/events` | Body `{"events":[{"id","t"}]}`; moves events, re-mixes via the Audio adapter and returns the `/result` body. 422 for unknown ids or times outside the clip, 409 while a previous edit is applying |
 | `GET /jobs/{id}/download/result.mp4` | MP4 attachment |
 | `GET /jobs/{id}/download/events.json` | Events attachment |
 | `GET /health` | `ok`/`degraded` with FFmpeg/ffprobe availability |

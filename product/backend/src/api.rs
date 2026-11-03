@@ -1,13 +1,17 @@
-use std::sync::Arc;
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex, OnceLock},
+};
 
 use axum::{
     body::Body,
     extract::{multipart::MultipartRejection, DefaultBodyLimit, Multipart, Path, Request, State},
     http::{header, HeaderValue, Method, StatusCode},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, patch, post},
     Json, Router,
 };
+use serde::Deserialize;
 use serde_json::json;
 use tokio::{fs, io::AsyncWriteExt};
 use tower::ServiceExt;
@@ -63,6 +67,7 @@ pub fn router(state: AppState, frontend_origin: &str) -> anyhow::Result<Router> 
         .route("/jobs", post(submit))
         .route("/jobs/{job_id}", get(status))
         .route("/jobs/{job_id}/result", get(result))
+        .route("/jobs/{job_id}/events", patch(retime))
         .route("/jobs/{job_id}/download/{artifact}", get(download))
         .nest_service("/media", media)
         .fallback(|| async { ApiError::new(StatusCode::NOT_FOUND, "Route not found") })
@@ -70,7 +75,7 @@ pub fn router(state: AppState, frontend_origin: &str) -> anyhow::Result<Router> 
         .layer(
             CorsLayer::new()
                 .allow_origin(origin)
-                .allow_methods([Method::GET, Method::POST])
+                .allow_methods([Method::GET, Method::POST, Method::PATCH])
                 .allow_headers([header::CONTENT_TYPE, header::RANGE]),
         )
         .layer(TraceLayer::new_for_http())
@@ -196,24 +201,131 @@ fn require_complete(job: &Job) -> Result<(), ApiError> {
     Ok(())
 }
 
-async fn result(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Result<Json<JobResult>, ApiError> {
-    let job = load(&state, &id).await?;
-    require_complete(&job)?;
+async fn build_result(state: &AppState, job: &Job) -> Result<JobResult, ApiError> {
     let bytes = fs::read(state.store.folder(job.job_id).join("events.json"))
         .await
         .map_err(ApiError::internal)?;
     let events: EventsDocument = serde_json::from_slice(&bytes).map_err(ApiError::internal)?;
     events.validate().map_err(ApiError::internal)?;
     let prefix = format!("/media/{}", job.job_id);
-    Ok(Json(JobResult {
+    Ok(JobResult {
         original_video_url: format!("{prefix}/original.mp4"),
         result_video_url: format!("{prefix}/result.mp4"),
         events_url: format!("{prefix}/events.json"),
         events,
-    }))
+    })
+}
+
+async fn result(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<JobResult>, ApiError> {
+    let job = load(&state, &id).await?;
+    require_complete(&job)?;
+    Ok(Json(build_result(&state, &job).await?))
+}
+
+#[derive(Deserialize)]
+struct RetimeRequest {
+    events: Vec<Retime>,
+}
+
+#[derive(Deserialize)]
+struct Retime {
+    id: String,
+    t: f64,
+}
+
+/// Jobs whose sound is being re-mixed right now, so edits cannot overlap.
+fn retiming() -> &'static Mutex<HashSet<Uuid>> {
+    static SET: OnceLock<Mutex<HashSet<Uuid>>> = OnceLock::new();
+    SET.get_or_init(Default::default)
+}
+
+struct RetimeGuard(Uuid);
+impl Drop for RetimeGuard {
+    fn drop(&mut self) {
+        if let Ok(mut set) = retiming().lock() {
+            set.remove(&self.0);
+        }
+    }
+}
+
+/// Moves events in time and re-mixes the video. Sounds are reused from the Audio
+/// cache, so no new generation happens. Only `t` can change; everything else in
+/// events.json stays as Detection wrote it.
+async fn retime(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<RetimeRequest>,
+) -> Result<Json<JobResult>, ApiError> {
+    let job = load(&state, &id).await?;
+    require_complete(&job)?;
+    let _guard = {
+        let mut set = retiming().lock().map_err(ApiError::internal)?;
+        if !set.insert(job.job_id) {
+            return Err(ApiError::new(
+                StatusCode::CONFLICT,
+                "Still applying the previous change. Try again in a moment.",
+            ));
+        }
+        RetimeGuard(job.job_id)
+    };
+    let folder = state.store.folder(job.job_id);
+    let mut document: EventsDocument = serde_json::from_slice(
+        &fs::read(folder.join("events.json"))
+            .await
+            .map_err(ApiError::internal)?,
+    )
+    .map_err(ApiError::internal)?;
+    for change in &body.events {
+        let event = document
+            .events
+            .iter_mut()
+            .find(|event| event.id == change.id)
+            .ok_or_else(|| {
+                ApiError::new(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    format!("Unknown event '{}'.", change.id),
+                )
+            })?;
+        event.t = change.t;
+    }
+    document
+        .validate()
+        .map_err(|error| ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, error.to_string()))?;
+
+    // Render beside the current result, then swap it in, so a failure keeps
+    // both the old video and the old events.
+    let staged = folder.join("result.edit.mp4");
+    state
+        .audio
+        .render(&folder.join("original.mp4"), &document, &staged)
+        .await
+        .map_err(|error| {
+            tracing::warn!(error = ?error, "Re-mix failed");
+            ApiError::new(StatusCode::BAD_GATEWAY, error.to_string())
+        })?;
+    let produced = fs::metadata(&staged).await.map_err(ApiError::internal)?;
+    if !produced.is_file() || produced.len() == 0 {
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "Audio did not produce a result video.",
+        ));
+    }
+    fs::write(
+        folder.join("events.tmp"),
+        serde_json::to_vec_pretty(&document).map_err(ApiError::internal)?,
+    )
+    .await
+    .map_err(ApiError::internal)?;
+    fs::rename(&staged, folder.join("result.mp4"))
+        .await
+        .map_err(ApiError::internal)?;
+    fs::rename(folder.join("events.tmp"), folder.join("events.json"))
+        .await
+        .map_err(ApiError::internal)?;
+    Ok(Json(build_result(&state, &job).await?))
 }
 
 async fn download(
