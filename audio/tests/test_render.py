@@ -62,6 +62,29 @@ def test_audio_already_in_the_clip_is_kept(sample_video, sample_events, tmp_path
     assert stream_md5(out, "0:v:0") == stream_md5(with_audio, "0:v:0")
 
 
+def test_severe_candidates_are_regenerated_once_with_revised_prompt(sample_video, sample_events, tmp_path):
+    class SilentThenSharp:
+        name = "silent-then-sharp"
+        calls = 0
+        prompts_seen = []
+
+        def generate(self, prompts, durations, n_candidates, seed):
+            self.calls += 1
+            self.prompts_seen.extend(prompts)
+            sr = 16000
+            if self.calls == 1:
+                return sr, [[np.zeros(int(sr * d), dtype=np.float32) for _ in range(n_candidates)] for d in durations]
+            t = np.arange(int(sr * 0.4)) / sr
+            sharp = (0.8 * np.sin(2 * np.pi * 900 * t) * np.exp(-t * 6)).astype(np.float32)
+            return sr, [[sharp.copy() for _ in range(n_candidates)] for _ in durations]
+
+    generator = SilentThenSharp()
+    result = render(sample_video, sample_events, tmp_path / "out.mp4", generator, cache_dir=tmp_path / "cache")
+    assert result.events_played == 9
+    assert generator.calls > 2  # initial batches + at least one revised regeneration
+    assert any("loud, powerful" in p for p in generator.prompts_seen)  # near_silent modifier applied
+
+
 def test_fake_sounds_are_never_reused_by_a_real_generator(sample_video, sample_events, tmp_path):
     cache = tmp_path / "cache"
     render(sample_video, sample_events, tmp_path / "a.mp4", FakeGenerator(), cache_dir=cache)

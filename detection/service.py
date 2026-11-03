@@ -12,11 +12,11 @@ import pathlib
 import threading
 import uuid
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
 from .meta_client import load_env
-from .pipeline import detect
+from .pipeline import detect, review_result
 
 load_env()
 DATA = pathlib.Path(os.environ.get("DETECTION_DATA_DIR", pathlib.Path(__file__).parent / "data" / "jobs"))
@@ -83,6 +83,28 @@ def status(job_id: str) -> dict:
         raise HTTPException(404, "Job not found")
     out = dict(job); out.pop("_result", None)
     return out
+
+
+@app.post("/review")
+async def review(video: UploadFile = File(...), events: str = Form(...)) -> dict:
+    """Second pass: Muse Spark watches the finished video+audio, returns per-event verdicts."""
+    import json as _json
+    import tempfile
+    try:
+        events_doc = _json.loads(events)
+    except Exception:
+        raise HTTPException(400, "events must be a JSON string.")
+    data = await video.read()
+    if not data:
+        raise HTTPException(400, "The uploaded file is empty.")
+    with tempfile.TemporaryDirectory() as tmp:
+        path = pathlib.Path(tmp) / "result.mp4"
+        path.write_bytes(data)
+        try:
+            verdicts = review_result(path, events_doc)
+        except Exception as e:
+            raise HTTPException(502, f"Review failed: {e}")
+    return {"verdicts": verdicts}
 
 
 @app.get("/detect/{job_id}/events")

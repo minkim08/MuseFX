@@ -64,9 +64,13 @@ class MetaClient:
     def upload_file(self, path: pathlib.Path) -> str:
         boundary = "----musefx" + uuid.uuid4().hex
         data = path.read_bytes()
+        mime = {
+            ".mp4": "video/mp4", ".mov": "video/quicktime", ".wav": "audio/wav",
+            ".mp3": "audio/mpeg", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+        }.get(path.suffix.lower(), "application/octet-stream")
         body = (
             f"--{boundary}\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nuser_data\r\n".encode()
-            + f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{path.name}\"\r\nContent-Type: video/mp4\r\n\r\n".encode()
+            + f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{path.name}\"\r\nContent-Type: {mime}\r\n\r\n".encode()
             + data + b"\r\n" + f"--{boundary}--\r\n".encode()
         )
         req = urllib.request.Request(

@@ -1,7 +1,8 @@
 import numpy as np
 
 from musefx_audio.mixer import (
-    OUT_SR, Placement, ambience_bed, apply_fades, limit, mix, pan_gains, prepare_sound, trim_leading_silence,
+    OUT_SR, Placement, ambience_bed, apply_fades, limit, mix, onset_offset_ms, pan_gains, prepare_sound,
+    trim_leading_silence, trim_to_onset,
 )
 
 SR = 16000
@@ -17,6 +18,16 @@ def sound_with_silence(lead_seconds=0.05, seed=0) -> np.ndarray:
 
 def onset(channel: np.ndarray, fraction=0.01) -> int:
     return int(np.argmax(np.abs(channel) >= fraction * np.abs(channel).max()))
+
+
+def test_onset_offset_and_trim_to_onset():
+    sr = 48000
+    audio = np.concatenate([np.zeros(sr // 10, dtype=np.float32),
+                            (0.9 * np.sin(np.linspace(0, 50, sr // 10))).astype(np.float32)])
+    assert onset_offset_ms(audio, sr) > 90  # ~100 ms of leading silence
+    assert onset_offset_ms(trim_to_onset(audio, sr), sr) <= 5.0
+    loud = (0.9 * np.sin(np.linspace(0, 50, sr // 10))).astype(np.float32)
+    assert len(trim_to_onset(loud, sr)) == len(loud)  # sharp attack untouched
 
 
 def test_trim_removes_leading_silence():

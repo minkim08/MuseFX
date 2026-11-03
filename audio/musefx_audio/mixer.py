@@ -40,6 +40,7 @@ def prepare_sound(
 ) -> np.ndarray:
     """Resample, trim, normalise, optionally vary, cut to duration and fade one sound."""
     audio = trim_leading_silence(resample_to(audio, sample_rate, OUT_SR))
+    audio = trim_to_onset(audio, OUT_SR)  # local second-pass timing fix
     audio = normalise_peak(audio, SOUND_PEAK)
     if rng is not None:
         audio = vary(audio, rng)
@@ -60,6 +61,25 @@ def trim_leading_silence(audio: np.ndarray, threshold_db: float = SILENCE_DB) ->
         return audio
     start = int(np.argmax(np.abs(audio) >= peak * 10 ** (threshold_db / 20)))
     return audio[start:]
+
+
+def onset_offset_ms(audio: np.ndarray, sample_rate: int, threshold_db: float = -30.0) -> float:
+    """Milliseconds until the sound's attack crosses threshold_db (local timing check)."""
+    if audio.size == 0 or sample_rate <= 0:
+        return 0.0
+    peak = np.abs(audio).max()
+    if peak == 0:
+        return 0.0
+    idx = int(np.argmax(np.abs(audio) >= peak * 10 ** (threshold_db / 20)))
+    return idx / sample_rate * 1000.0
+
+
+def trim_to_onset(audio: np.ndarray, sample_rate: int, max_offset_ms: float = 5.0) -> np.ndarray:
+    """Second-pass trim: remove any remaining soft attack longer than max_offset_ms."""
+    offset = onset_offset_ms(audio, sample_rate)
+    if offset <= max_offset_ms:
+        return audio
+    return audio[int(offset / 1000.0 * sample_rate):]
 
 
 def normalise_peak(audio: np.ndarray, target: float) -> np.ndarray:

@@ -80,6 +80,45 @@ def test_emitted_shape_matches_contract_types():
     assert doc["events"][0]["type"] in {"footstep", "impact", "hit", "door", "pickup", "ui", "whoosh", "other"}
 
 
+def test_compose_prompt_from_slots():
+    from detection.pipeline import compose_prompt
+    out = compose_prompt(
+        {"subject": "boot", "subject_detail": "heavy worn leather", "action": "stomping down",
+         "contact": "sole compressing and scraping", "material": "loose gravel",
+         "secondary": "small stones crunching and shifting", "environment": "quiet outdoor trail",
+         "acoustics": "open air, minimal reverb", "intensity": "forceful",
+         "perspective": "very close, slightly left", "character": "sharp attack, short gritty decay"},
+        "footstep", "fallback", duration=0.35)
+    assert out == ("forceful heavy worn leather boot stomping down, sole compressing and scraping on loose gravel, "
+                   "small stones crunching and shifting, quiet outdoor trail, open air, minimal reverb, "
+                   "very close, slightly left, sharp attack, short gritty decay, "
+                   "isolated sound effect only, no music, no speech")
+    assert len(out) > 150  # detailed, not a one-line generic prompt
+    minimal = compose_prompt({"subject": "boot", "action": "stomping"}, "footstep", "fallback", duration=0.35)
+    assert "close and dry, short, punchy, single footstep" in minimal
+    assert compose_prompt({}, "impact", "fallback") == "fallback"
+    assert compose_prompt({"subject": "", "action": ""}, "impact", "fallback") == "fallback"
+
+
+def test_review_result_parses_verdicts():
+    import detection.pipeline as pl
+
+    class FakeClient:
+        def upload_file(self, path):
+            return "file-1"
+
+        def muse(self, prompt, file_id=None, image_data_urls=None):
+            return ('{"verdicts": [{"id": "e1", "timing_shift_ms": -80, "match": 0.4, '
+                    '"action": "regenerate", "slots": {"subject": "boot", "action": "stomp"}}, '
+                    '{"id": "e2", "timing_shift_ms": 0, "match": 1.5, "action": "bogus", "slots": null}]}')
+
+    verdicts = pl.review_result(pathlib.Path("x.mp4"),
+                                {"events": [{"id": "e1", "t": 1.0, "type": "impact", "prompt": "p"}]},
+                                client=FakeClient())
+    assert verdicts[0]["timing_shift_ms"] == -80 and verdicts[0]["action"] == "regenerate"
+    assert verdicts[1]["match"] == 1.0 and verdicts[1]["action"] == "keep"  # clamped/sanitised
+
+
 def test_service_flow_with_fake_pipeline(monkeypatch):
     import detection.service as svc
 
