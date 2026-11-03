@@ -1,4 +1,8 @@
-use std::{path::Path, process::Stdio, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    process::Stdio,
+    time::Duration,
+};
 
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use async_trait::async_trait;
@@ -236,6 +240,94 @@ impl DetectionAdapter for MockDetection {
         events.validate()?;
         fs::write(output, serde_json::to_vec_pretty(&events)?).await?;
         Ok(events)
+    }
+}
+
+/// Real generation can wait out several GPU cold starts, so this is far longer
+/// than the 180 second limit in run_media.
+const PYTHON_AUDIO_TIMEOUT: Duration = Duration::from_secs(3600);
+
+/// Real Audio: runs the Python component in audio/ (`python -m musefx_audio`).
+/// It reads RUNPOD_ENDPOINT_ID and RUNPOD_API_KEY from this process's environment.
+pub struct PythonAudio {
+    python: PathBuf,
+    audio_dir: PathBuf,
+    fake: bool,
+}
+
+impl PythonAudio {
+    pub fn new(python: PathBuf, audio_dir: PathBuf, fake: bool) -> Self {
+        Self {
+            python,
+            audio_dir,
+            fake,
+        }
+    }
+
+    /// Uses the virtual environment in the audio folder. With `fake`, sounds are
+    /// synthetic, so the whole site can be tested without a GPU.
+    pub fn from_dir(audio_dir: &Path, fake: bool) -> Result<Self> {
+        let audio_dir = audio_dir
+            .canonicalize()
+            .with_context(|| format!("AUDIO_DIR {} does not exist.", audio_dir.display()))?;
+        let python = audio_dir.join(".venv/bin/python");
+        ensure!(
+            python.is_file(),
+            "{} is missing. Create it with the setup steps in audio/TESTING.md.",
+            python.display()
+        );
+        Ok(Self::new(python, audio_dir, fake))
+    }
+}
+
+#[async_trait]
+impl AudioAdapter for PythonAudio {
+    async fn render(&self, video: &Path, events: &EventsDocument, output: &Path) -> Result<()> {
+        events.validate()?;
+        // The command runs from the audio folder, so every path has to be absolute.
+        let video = video
+            .canonicalize()
+            .context("Could not find the uploaded video.")?;
+        let folder = output
+            .parent()
+            .context("The result path has no folder.")?
+            .canonicalize()
+            .context("Could not find the job folder.")?;
+        let output = folder.join(output.file_name().context("The result path has no name.")?);
+        let events_path = folder.join("audio_events.json");
+        fs::write(&events_path, serde_json::to_vec_pretty(events)?)
+            .await
+            .context("Could not write events for Audio.")?;
+
+        let mut command = Command::new(&self.python);
+        command
+            .args(["-m", "musefx_audio"])
+            .arg(&video)
+            .arg(&events_path)
+            .arg("-o")
+            .arg(&output)
+            .current_dir(&self.audio_dir)
+            .kill_on_drop(true)
+            .stdin(Stdio::null());
+        if self.fake {
+            command.arg("--fake");
+        }
+        let finished = timeout(PYTHON_AUDIO_TIMEOUT, command.output()).await;
+        let _ = fs::remove_file(&events_path).await;
+        let finished = finished
+            .context("Audio exceeded the 60 minute limit.")?
+            .context("Could not start the Audio component.")?;
+        if !finished.status.success() {
+            let stderr = String::from_utf8_lossy(&finished.stderr);
+            tracing::warn!(%stderr, "Audio component failed");
+            let reason = stderr
+                .lines()
+                .rev()
+                .find(|line| !line.trim().is_empty())
+                .unwrap_or("unknown error");
+            bail!("Audio failed: {}", reason.trim_start_matches("error: "));
+        }
+        Ok(())
     }
 }
 

@@ -11,8 +11,8 @@ The Product layer is implemented and runnable locally:
 - **Frontend:** Next.js + TypeScript — one page with upload, staged progress bar, side-by-side players, event timeline, and downloads.
 - **Backend:** Rust + Axum/Tokio — job API, background pipeline, local artifact storage.
 - **Detection is real.** A Python/FastAPI service in [detection/](detection/README.md) calls Muse Spark and SAM 3.1 through the Meta Model API and returns contract-valid `events.json`. Product uses it when `DETECTION_API_URL` is set; otherwise it falls back to Mock Detection (a single impact event at `min(1 second, duration / 3)`).
-- **Audio is still a mock.** Mock Audio does not generate real sound effects yet: it adds a short **880 Hz test tone at each event time**, respecting the event's volume and pan, skipping events with confidence below 0.5, and copying the video stream unchanged. It is a timing placeholder for the real Audio component (AudioGen on Modal), which is not built yet.
-- **No deployment yet.** Everything runs locally; no Modal deployment is included.
+- **Audio is real when enabled.** The Python component in [audio/](audio/README.md) generates sounds with AudioGen on Runpod Serverless and mixes them onto the clip. Product uses it when `AUDIO_DIR` is set; otherwise it falls back to Mock Audio (an **880 Hz test tone at each event time**).
+- **Runs locally.** The website, backend and Detection run on your machine; only AudioGen runs in the cloud, on Runpod.
 
 Adapters sit behind `DetectionAdapter` / `AudioAdapter` traits and follow the shared `events.json` contract, so components can be swapped without changing the API, schema, or UI. Full details: [Product README](product/README.md) and [adapter handoff](product/docs/INTEGRATION.md).
 
@@ -89,6 +89,19 @@ This creates a four-second silent `sample.mp4`. Upload it in the web app; the mo
    ```
 
 5. Start the frontend as in the quick run, open http://localhost:3000, and upload a clip. Real Detection can take a while on a 60-second clip; the sample clip returns zero events (nothing happens in it), so use a clip with visible action — `movingbox.mp4` in the repo root if present, or any short gameplay clip.
+
+### Full run (real Detection and real Audio)
+
+Set up Audio once by following "Before you start" in [audio/TESTING.md](audio/TESTING.md), then start the backend with both parts enabled. Everything else is the same as the run above.
+
+```sh
+cd product/backend
+export RUNPOD_ENDPOINT_ID=your_endpoint_id
+export RUNPOD_API_KEY=your_api_key
+DETECTION_API_URL=http://127.0.0.1:8100 AUDIO_DIR=../../audio cargo run
+```
+
+Real runs cost money. A cold start can take 5 minutes or more, and the page shows "Mixing" for the whole generation step. To try the full site for free with synthetic sounds, add `AUDIO_FAKE=1` to the last line; you don't need the Runpod values for that.
 
 ## How it fits together
 

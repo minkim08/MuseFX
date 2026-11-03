@@ -1,6 +1,10 @@
 import re
 import subprocess
 
+import numpy as np
+import pytest
+import soundfile as sf
+
 from musefx_audio.generators import FakeGenerator
 from musefx_audio.merge import ffmpeg_exe, probe_duration
 from musefx_audio.render import render
@@ -33,6 +37,29 @@ def test_end_to_end_with_fake_sounds(sample_video, sample_events, tmp_path):
     assert re.search(r"Audio: aac", info)
     assert stream_md5(out, "0:v:0") == stream_md5(sample_video, "0:v:0")  # video copied, not re-encoded
     assert abs(probe_duration(out) - probe_duration(sample_video)) < 0.1
+
+
+def test_audio_already_in_the_clip_is_kept(sample_video, sample_events, tmp_path):
+    with_audio = tmp_path / "with_audio.mp4"
+    subprocess.run(
+        [
+            ffmpeg_exe(), "-y", "-hide_banner", "-loglevel", "error",
+            "-i", str(sample_video), "-f", "lavfi", "-i", "sine=frequency=3000:duration=8",
+            "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", str(with_audio),
+        ],
+        check=True,
+    )
+    out = tmp_path / "out.mp4"
+    render(with_audio, sample_events, out, FakeGenerator(), cache_dir=tmp_path / "cache")
+
+    wav = tmp_path / "out.wav"
+    subprocess.run([ffmpeg_exe(), "-y", "-loglevel", "error", "-i", str(out), str(wav)], check=True)
+    audio, sr = sf.read(wav)
+    assert audio.shape[1] == 2  # a mono source must not collapse the panned mix
+    spectrum = np.abs(np.fft.rfft(audio.mean(axis=1)))
+    freqs = np.fft.rfftfreq(len(audio), 1 / sr)
+    assert freqs[np.argmax(np.where(freqs > 2900, spectrum, 0))] == pytest.approx(3000, abs=5)
+    assert stream_md5(out, "0:v:0") == stream_md5(with_audio, "0:v:0")
 
 
 def test_fake_sounds_are_never_reused_by_a_real_generator(sample_video, sample_events, tmp_path):
