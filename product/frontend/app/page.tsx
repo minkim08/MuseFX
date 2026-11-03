@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-import { API, media, request, validateVideo, type Job, type Result } from '../lib/api';
+import { Timeline } from './Timeline';
+import { API, media, request, validateVideo, type Job, type Result, type SoundEvent } from '../lib/api';
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
@@ -14,6 +15,13 @@ export default function Home() {
   const [pollingPaused, setPollingPaused] = useState(false);
   const [pollAttempt, setPollAttempt] = useState(0);
   const resultPlayer = useRef<HTMLVideoElement>(null);
+  const latestResult = useRef<Result | null>(null);
+  const resumeAt = useRef<number | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [videoVersion, setVideoVersion] = useState(0);
+
+  useEffect(() => { latestResult.current = result; }, [result]);
 
   useEffect(() => {
     if (!file) { setPreview(null); return; }
@@ -67,6 +75,33 @@ export default function Home() {
       resultPlayer.current.focus();
     }
   }
+  const clampT = (event: SoundEvent, t: number, duration: number) =>
+    Math.round(Math.min(Math.max(0, t), Math.max(0, duration - event.duration)) * 1000) / 1000;
+  function moveLocal(id: string, t: number) {
+    const player = resultPlayer.current;
+    if (player && result) {
+      const moved = result.events.events.find(e => e.id === id);
+      if (moved) { player.pause(); player.currentTime = clampT(moved, t, result.events.video.duration); }
+    }
+    setResult(r => r && { ...r, events: { ...r.events, events: r.events.events.map(e => e.id === id ? { ...e, t: clampT(e, t, r.events.video.duration) } : e) } });
+  }
+  // Sends the current times to the backend, which re-mixes with the cached sounds.
+  async function applyTimes(id: string) {
+    if (!job) return;
+    const wanted = latestResult.current?.events.events.find(e => e.id === id);
+    if (!wanted) return;
+    resumeAt.current = wanted.t;
+    setApplying(true); setEditError(null);
+    try {
+      const output = await request<Result>(`/jobs/${job.job_id}/events`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ events: [{ id, t: wanted.t }] }),
+      });
+      setResult(output); setVideoVersion(v => v + 1);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Could not apply the change.');
+    } finally { setApplying(false); }
+  }
   return <main>
     <nav><a className="brand" href="/">◉ MUSEFX</a><span className="badge">LOCAL MVP · MOCK ADAPTERS</span></nav>
     <header><p className="eyebrow">FROM MOTION TO EMOTION</p><h1>Give your video<br /><span>a sound of its own.</span></h1><p className="intro">Drop in a clip. Find the moment. Hear the difference.<br />A tiny playground for video-to-sound effects.</p></header>
@@ -83,8 +118,8 @@ export default function Home() {
         {pollingPaused && <button className="retry" onClick={() => { setError(null); setPollingPaused(false); }}>Reconnect to job ↻</button>}
       </div>
     </section>
-    <section className="players"><div className="panel"><div className="section-title"><span>ORIGINAL</span><span>BEFORE</span></div>{preview ? <video controls aria-label="Original video" src={preview} /> : <div className="empty">Your source video will appear here</div>}</div><div className="panel"><div className="section-title"><span>SOUND ON</span><span>AFTER</span></div>{result ? <video ref={resultPlayer} aria-label="Result video with sound effects" controls src={media(result.result_video_url)} /> : <div className="empty">A new soundtrack is one clip away</div>}</div></section>
-    <section className="panel timeline"><div className="section-title"><span>03 / EVENT TIMELINE</span><span>{result ? `${result.events.events.length} EVENT` : 'WAITING FOR DETECTION'}</span></div>{result ? <><div className="track">{result.events.events.map(event => <button key={event.id} style={{left: `${event.t / result.events.video.duration * 100}%`}} title={`Seek to ${event.t.toFixed(2)}s`} aria-label={`Seek to ${event.prompt}`} onClick={() => { seek(event.t); }}>●</button>)}</div>{result.events.events.map(event => <button className="event" key={event.id} onClick={() => seek(event.t)} title={`${event.type}: ${event.prompt}`}><code>{event.t.toFixed(2)}s</code><strong>{event.prompt}</strong><span>{event.duration.toFixed(2)}s · {Math.round(event.confidence * 100)}% confidence</span></button>)}<div className="downloads"><a href={`${API}/jobs/${job?.job_id}/download/result.mp4`}>Download MP4 ↗</a><a href={`${API}/jobs/${job?.job_id}/download/events.json`}>Download events.json ↗</a></div></> : <p className="note">Detected moments will appear here. Click an event to jump to its sound.</p>}</section>
+    <section className="players"><div className="panel"><div className="section-title"><span>ORIGINAL</span><span>BEFORE</span></div>{preview ? <video controls aria-label="Original video" src={preview} /> : <div className="empty">Your source video will appear here</div>}</div><div className="panel"><div className="section-title"><span>SOUND ON</span><span>AFTER</span></div>{result ? <video ref={resultPlayer} onLoadedMetadata={e => { if (resumeAt.current !== null) { e.currentTarget.currentTime = resumeAt.current; resumeAt.current = null; } }} aria-label="Result video with sound effects" controls src={`${media(result.result_video_url)}?v=${videoVersion}`} /> : <div className="empty">A new soundtrack is one clip away</div>}</div></section>
+    <section className="panel timeline"><div className="section-title"><span>03 / SOUND TRACKS</span><span>{result ? `${result.events.events.length} EVENT` : 'WAITING FOR DETECTION'}</span></div>{result ? <><p className="note">Drag a clip left or right (or focus it and press ← →, Shift for 0.1 s) to fix the sync. The video is re-mixed with the same sounds.{applying && <strong> Applying…</strong>}</p><Timeline result={result} player={resultPlayer} version={videoVersion} busy={applying} onMove={moveLocal} onCommit={id => void applyTimes(id)} onSeek={seek} />{editError && <p className="error" role="alert">{editError}</p>}{result.events.events.map(event => <button className="event" key={event.id} onClick={() => seek(event.t)} title={`${event.type}: ${event.prompt}`}><code>{event.t.toFixed(2)}s</code><strong>{event.prompt}</strong><span>{event.duration.toFixed(2)}s · {Math.round(event.confidence * 100)}% confidence</span></button>)}<div className="downloads"><a href={`${API}/jobs/${job?.job_id}/download/result.mp4`}>Download MP4 ↗</a><a href={`${API}/jobs/${job?.job_id}/download/events.json`}>Download events.json ↗</a></div></> : <p className="note">Detected moments will appear here. Click an event to jump to its sound.</p>}</section>
     <footer>MUSEFX <span>Built for experimentation. Powered by replaceable adapters.</span></footer>
   </main>;
 }

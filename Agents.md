@@ -113,6 +113,7 @@ Built by Product, called by the web app.
 | `POST /jobs` | Upload a video, returns `job_id` |
 | `GET /jobs/{id}` | Returns stage (`detecting`, `describing`, `generating`, `mixing`, `done`, `failed`) and progress 0–100 |
 | `GET /jobs/{id}/result` | Returns the finished MP4 and `events.json` |
+| `PATCH /jobs/{id}/events` | Body `{"events":[{"id":"e1","t":2.4}]}`. Moves events in time (only `t`), re-mixes with the cached sounds and returns the same body as `/result`. Added for fixing sync by hand; the `events.json` schema is unchanged |
 
 ## Working agreements for agents
 
