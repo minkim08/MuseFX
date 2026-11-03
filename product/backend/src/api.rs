@@ -359,5 +359,6 @@ pub async fn mock_state(root: std::path::PathBuf) -> anyhow::Result<AppState> {
         store: crate::store::JobStore::new(root).await?,
         detection: Arc::new(crate::adapters::MockDetection),
         audio: Arc::new(crate::adapters::MockAudio),
+        review: None,
     })
 }

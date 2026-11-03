@@ -10,11 +10,12 @@ import numpy as np
 import soundfile as sf
 
 from .cache import SoundCache
+from .diagnose import best_candidate, revise_prompt, severe_issues
 from .events import load_events
 from .generators import Generator
 from .merge import merge_audio, probe_duration
 from .mixer import OUT_SR, Placement, ambience_bed, mix, prepare_sound
-from .pick import PERCUSSIVE_TYPES, pick_best
+from .pick import PERCUSSIVE_TYPES
 
 DEFAULT_CACHE_DIR = Path(__file__).resolve().parent.parent / ".cache" / "sounds"
 AMBIENCE_SECONDS = 10.0  # AudioGen's comfortable maximum; the bed is looped to the clip length
@@ -76,7 +77,22 @@ def render(
         sample_rate, candidates = generator.generate(prompts, durations, n_candidates, seed)
         for key, options in zip(group, candidates):
             prompt, duration, percussive = wanted[key]
-            best = options[pick_best(options, sample_rate, percussive)]
+            picked = best_candidate(options, sample_rate, percussive, duration)
+            best = options[picked.index]
+            # Sound-level second pass: if every candidate has a severe issue
+            # (silent, very soft attack, far too long), revise the prompt once
+            # aimed at the issue and regenerate; keep whichever set is healthier.
+            severe = severe_issues(picked.issues)
+            if severe and options:
+                revised = revise_prompt(prompt, severe)
+                try:
+                    sr2, regen = generator.generate([revised], [duration], n_candidates, seed + 997)
+                    if regen and regen[0]:
+                        picked2 = best_candidate(regen[0], sr2, percussive, duration)
+                        if len(severe_issues(picked2.issues)) < len(severe):
+                            best, sample_rate = regen[0][picked2.index], sr2
+                except Exception:
+                    pass  # diagnosis must never break generation
             cache.put(prompt, duration, best, sample_rate)
             sounds[key] = (best, sample_rate)
     progress("generating", 1.0)

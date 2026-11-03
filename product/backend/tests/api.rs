@@ -85,6 +85,7 @@ async fn setup(audio: Arc<dyn AudioAdapter>) -> (TestDir, AppState, Router) {
         store: JobStore::new(dir.path().to_owned()).await.unwrap(),
         detection: Arc::new(StubDetection),
         audio,
+        review: None,
     };
     let app = router(state.clone(), "http://localhost:3000").unwrap();
     (dir, state, app)
@@ -413,6 +414,79 @@ async fn real_mp4_preserves_frames_and_adds_audio() {
             );
         }
     }
+}
+
+#[tokio::test]
+async fn review_shift_rerenders_with_adjusted_events() {
+    use video_to_sfx::adapters::{ReviewAdapter, ReviewVerdict};
+    struct OneEventDetection;
+    #[async_trait]
+    impl DetectionAdapter for OneEventDetection {
+        async fn detect(&self, _: &Path, output: &Path) -> Result<EventsDocument> {
+            let events = EventsDocument {
+                video: Video {
+                    id: "test".into(),
+                    duration: 2.0,
+                    fps: 24.0,
+                },
+                events: vec![video_to_sfx::models::Event {
+                    id: "e1".into(),
+                    t: 1.0,
+                    duration: 0.35,
+                    event_type: video_to_sfx::models::EventType::Impact,
+                    prompt: "hit".into(),
+                    volume: 0.8,
+                    pan: 0.0,
+                    confidence: 0.9,
+                }],
+                ambience: None,
+            };
+            fs::write(output, serde_json::to_vec(&events)?).await?;
+            Ok(events)
+        }
+    }
+    struct CopyAudio;
+    #[async_trait]
+    impl AudioAdapter for CopyAudio {
+        async fn render(&self, video: &Path, _: &EventsDocument, output: &Path) -> Result<()> {
+            fs::copy(video, output).await?;
+            Ok(())
+        }
+    }
+    struct ShiftReview;
+    #[async_trait]
+    impl ReviewAdapter for ShiftReview {
+        async fn review(&self, _: &Path, _: &EventsDocument) -> Result<Vec<ReviewVerdict>> {
+            Ok(vec![ReviewVerdict {
+                id: "e1".into(),
+                timing_shift_ms: 200.0,
+                match_score: 0.9,
+                action: "shift".into(),
+                slots: None,
+            }])
+        }
+    }
+    let (_dir, mut state, _) = setup(Arc::new(CopyAudio)).await;
+    state.detection = Arc::new(OneEventDetection);
+    state.review = Some(Arc::new(ShiftReview));
+    let app = router(state.clone(), "http://localhost:3000").unwrap();
+    let queued: Job = serde_json::from_value(
+        json(
+            app.clone()
+                .oneshot(upload("clip.mp4", b"adapter fixture"))
+                .await
+                .unwrap(),
+        )
+        .await,
+    )
+    .unwrap();
+    let job = finish(&state, queued.job_id).await;
+    assert_eq!(job.status, Status::Completed, "{:?}", job.error);
+    let result = json(get(&app, &format!("/jobs/{}/result", job.job_id)).await).await;
+    assert_eq!(
+        result["events"]["events"][0]["t"], 1.2,
+        "review shift must reach the final events.json"
+    );
 }
 
 #[tokio::test]

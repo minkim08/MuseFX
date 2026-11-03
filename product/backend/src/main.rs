@@ -17,7 +17,12 @@ async fn main() -> Result<()> {
     if let Ok(url) = env::var("DETECTION_API_URL") {
         if !url.trim().is_empty() {
             tracing::info!(%url, "Using real Detection service");
-            state.detection = std::sync::Arc::new(video_to_sfx::adapters::HttpDetection::new(url));
+            state.detection =
+                std::sync::Arc::new(video_to_sfx::adapters::HttpDetection::new(url.clone()));
+            // Second-pass review uses the same Detection service.
+            state.review = Some(std::sync::Arc::new(
+                video_to_sfx::adapters::HttpReview::new(url),
+            ));
         }
     }
     if let Ok(dir) = env::var("AUDIO_DIR") {

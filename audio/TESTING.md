@@ -181,6 +181,18 @@ The website only accepts MP4. Convert other clips without re-encoding:
 ffmpeg -i clip.mov -c copy -movflags +faststart clip.mp4
 ```
 
+## 8. Second pass (review and fix, on the website)
+
+With real Detection wired in, the website runs one review iteration after the first render:
+
+1. **Sound-level diagnosis (in Audio, from the audio itself):** every generated candidate is measured before picking (`diagnose.py`): attack/onset, effective duration, loudness, brightness, and decay. The best candidate wins on score minus issue penalties. If the best candidate still has a severe issue (near-silent, very soft attack, far too long), the prompt is revised once with modifiers aimed at that issue ("loud, powerful, close-miked", "sharp immediate attack, hard transient", "very short, abruptly ending") and regenerated; the healthier set is kept. In the mixer, any remaining soft attack over 5 ms is trimmed (`trim_to_onset`) so the audible start lands on the event time.
+2. **Muse review (visual/contextual, not listening):** the Detection service's `POST /review` sends the finished video+audio to Muse Spark, which returns a verdict per event (timing shift in ms, match 0–1, keep/shift/regenerate, structured prompt slots when regenerating). Note: spikes proved Muse Spark does not actually hear sound effects (WAV upload, sound-in-video, and `muse-spark-1.2` `input_audio` all returned "no audio"), so treat its verdicts as judgement from the picture and event list — the DSP diagnosis above is the sound-level evidence.
+3. **Fix and re-render (once):** shifts of 30–500 ms are applied; events with match < 0.6 and `regenerate` get a new prompt composed from the review slots — only that event regenerates, the rest reuse cached sounds. The final `events.json` reflects any shifts/rewrites. Review failure never fails the job; the first render is kept.
+
+Detection's first-pass prompts are detailed and structured now: Muse fills subject, appearance/material detail, action, contact, surface, secondary texture, environment, acoustics, intensity, microphone perspective, and onset/decay slots per event (plus SAM-track motion/scale), composed into the AudioGen prompt — e.g. "forceful heavy worn leather boot stomping down, sole compressing and scraping on loose gravel, small stones crunching and shifting, quiet outdoor trail, open air, minimal reverb, very close, slightly left, sharp attack, short gritty decay, isolated sound effect only, no music, no speech". The review's regenerate path uses the same expanded slots.
+
 ## Known limitations
 
-- During a real run the website shows "Mixing" for the whole generation step, including any cold start.
+- During a real run the website shows "Mixing" for the whole generation step, including any cold start, and for the review iteration.
+- The review is one iteration only; Muse's match scores are judgements from picture/context, not measurements or listening — the DSP diagnosis is the sound-level signal.
+- There is no semantic "does it sound like gravel" scorer yet (that would need an audio-text model such as CLAP, deliberately deferred); diagnosis covers physical defects — silence, soft attack, wrong length, dull/harsh, too quiet.

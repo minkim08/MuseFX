@@ -21,7 +21,9 @@ python3 -m venv .venv && .venv/bin/pip install -r detection/requirements.txt
 .venv/bin/python -m detection.cli clip.mp4 events.json
 ```
 
-Service API: `POST /detect` (multipart `video`) → `202 {job_id, status, stage, progress, error}`; `GET /detect/{job_id}`; `GET /detect/{job_id}/events` (409 until done); `GET /health`.
+Service API: `POST /detect` (multipart `video`) → `202 {job_id, status, stage, progress, error}`; `GET /detect/{job_id}`; `GET /detect/{job_id}/events` (409 until done); `GET /health`; `POST /review` (multipart `video` = finished result MP4, `events` = events JSON as a text field) → Muse Spark verdicts per event for the second-pass fix loop in Product.
+
+Prompts are detailed and structured: per event, Muse Spark fills subject, subject_detail (colour/size/material), action, contact, material, secondary texture, environment, acoustics, intensity, perspective, and character (onset/decay) slots from 3 frames around the event, enriched with SAM-track motion/scale detail, then composed into the AudioGen prompt by `compose_prompt` — e.g. "forceful heavy worn leather boot stomping down, sole compressing and scraping on loose gravel, small stones crunching and shifting, quiet outdoor trail, open air, minimal reverb, very close, slightly left, sharp attack, short gritty decay, isolated sound effect only, no music, no speech" (fallback: the candidate description).
 
 Phase 0 findings (live, against the real API): auth/model access works (`muse-spark-1.3`, `sam-3.1`); Muse Spark accepts an uploaded video directly (`input_file`), so the scene pass uses the clip itself rather than extracted keyframes; SAM 3.1 takes one short noun-phrase concept per request (zero matches is a valid result) and returns per-frame box lines — SAM concept wording is literal, so the pipeline retries shape/noun variants on zero matches (e.g. "red rectangle" → "red square"). Frame indices map at the clip's native fps.
 

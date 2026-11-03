@@ -21,6 +21,152 @@ pub trait AudioAdapter: Send + Sync {
     async fn render(&self, video: &Path, events: &EventsDocument, output: &Path) -> Result<()>;
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct ReviewVerdict {
+    pub id: String,
+    pub timing_shift_ms: f64,
+    #[serde(rename = "match")]
+    pub match_score: f64,
+    pub action: String,
+    pub slots: Option<serde_json::Value>,
+}
+
+#[async_trait]
+pub trait ReviewAdapter: Send + Sync {
+    async fn review(&self, video: &Path, events: &EventsDocument) -> Result<Vec<ReviewVerdict>>;
+}
+
+/// Second pass: Muse Spark (via Detection service /review) watches the result.
+pub struct HttpReview {
+    base_url: String,
+    client: reqwest::Client,
+}
+
+impl HttpReview {
+    pub fn new(base_url: String) -> Self {
+        Self {
+            base_url: base_url.trim_end_matches('/').to_owned(),
+            client: reqwest::Client::new(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ReviewResponse {
+    verdicts: Vec<ReviewVerdict>,
+}
+
+#[async_trait]
+impl ReviewAdapter for HttpReview {
+    async fn review(&self, video: &Path, events: &EventsDocument) -> Result<Vec<ReviewVerdict>> {
+        let bytes = fs::read(video)
+            .await
+            .context("Could not read result video for review.")?;
+        let part = reqwest::multipart::Part::bytes(bytes)
+            .file_name("result.mp4")
+            .mime_str("video/mp4")?;
+        let form = reqwest::multipart::Form::new()
+            .part("video", part)
+            .text("events", serde_json::to_string(events)?);
+        let resp: ReviewResponse = self
+            .client
+            .post(format!("{}/review", self.base_url))
+            .multipart(form)
+            .send()
+            .await
+            .context("Review service unreachable.")?
+            .error_for_status()
+            .context("Review service rejected the result.")?
+            .json()
+            .await
+            .context("Review service returned invalid verdicts.")?;
+        Ok(resp.verdicts)
+    }
+}
+
+/// Compose a detailed prompt from review slots (mirrors detection compose_prompt).
+pub fn compose_prompt(slots: &serde_json::Value, event_type: &str, fallback: &str) -> String {
+    let get = |k: &str| {
+        slots
+            .get(k)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .trim_matches([',', '.', ';'])
+            .to_owned()
+    };
+    let (subject, action) = (get("subject"), get("action"));
+    if subject.is_empty() && action.is_empty() {
+        return fallback.to_owned();
+    }
+    let detail = get("subject_detail");
+    let subject_phrase =
+        if !detail.is_empty() && !subject.to_lowercase().contains(&detail.to_lowercase()) {
+            format!("{detail} {subject}")
+        } else {
+            subject
+        };
+    let mut head = [get("intensity"), subject_phrase, action]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let (contact, material, motion) = (get("contact"), get("material"), get("motion"));
+    if !contact.is_empty() {
+        head = format!("{head}, {contact}");
+    } else if !material.is_empty() {
+        head = format!("{head} on {material}");
+    }
+    if !material.is_empty()
+        && !contact.is_empty()
+        && !contact.to_lowercase().contains(&material.to_lowercase())
+    {
+        head = format!("{head} on {material}");
+    }
+    if !motion.is_empty() && !head.to_lowercase().contains(&motion.to_lowercase()) {
+        head = format!("{head}, {motion}");
+    }
+    let mut parts = vec![head];
+    let secondary = get("secondary");
+    if !secondary.is_empty() {
+        parts.push(secondary);
+    }
+    let space = [get("environment"), get("acoustics")]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ");
+    if !space.is_empty() {
+        parts.push(space);
+    }
+    let perspective = get("perspective");
+    if !perspective.is_empty() {
+        parts.push(perspective);
+    }
+    let character = get("character");
+    parts.push(if character.is_empty() {
+        format!("close and dry, single {event_type}")
+    } else {
+        character
+    });
+    parts.push("isolated sound effect only, no music, no speech".to_owned());
+    let prompt = parts
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ");
+    if prompt.len() > 400 {
+        prompt
+            .chars()
+            .take(400)
+            .collect::<String>()
+            .trim_end_matches([',', '.', ';', ' '])
+            .to_owned()
+    } else {
+        prompt
+    }
+}
+
 /// Argument lists avoid shell interpolation; a dropped timed-out child is killed.
 pub async fn run_media(command: &mut Command) -> Result<Vec<u8>> {
     command.kill_on_drop(true).stdin(Stdio::null());

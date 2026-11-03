@@ -1,6 +1,6 @@
 # Detection — Implementation Plan
 
-Status: implemented locally (Phases 0–6; timing bar on labelled gameplay clips still unmeasured). Shared contract: [Agents.md](../Agents.md) · Component overview: [README.md](README.md)
+Status: implemented locally (Phases 0–6 plus second-pass review; timing bar on labelled gameplay clips still unmeasured). Shared contract: [Agents.md](../Agents.md) · Component overview: [README.md](README.md)
 
 ## Goal
 
@@ -72,6 +72,8 @@ Contract traps handled in post-processing: closed type enum, `t + duration ≤ v
 | Integration | Detection is its own API service (`POST /detect`, poll, fetch `events.json`); Product's Rust adapter is an HTTP client for it, mock stays the default behind env selection (`DETECTION_API_URL`) | Components stay independently owned/deployable; async jobs give real stage progress; CLI subprocess coupling (shared paths, one machine) rejected as the integration contract |
 | Fallback | Muse Spark picks events from 10 fps frames if tracking fails | A rough event list beats no output for the demo |
 | Secrets | Keys only in local gitignored `.env`; `.env.example` lists names | Never commit credentials |
+| Prompts | Structured slots (subject/action/material/environment/intensity/character) composed into the AudioGen prompt | Specificity and consistency; free-form prompts were too vague |
+| Second pass | One review iteration: Audio local onset trim + Muse Spark review of the finished result (`POST /review`), Product applies shifts (30–500 ms) and regenerates match < 0.6 events with rewritten slot prompts, then re-renders | Fixes timing and wrong sounds; shift-only fixes reuse cached sounds, only failed events cost a new generation; review failure keeps the first render |
 
 ### Future decisions (open)
 
